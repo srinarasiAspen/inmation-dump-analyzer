@@ -23,6 +23,8 @@ Run every command with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`
 5. A dump marked BLOCKED (no verified symbols) gets only raw facts: exception code, address, module+offset, version,
    required PDB. No function names, no root cause, no "fixed" claim for it. Never use a PDB of another build.
 6. Separate facts (dump, PDB, git, TFS) from hypotheses. Say how sure you are.
+7. Never edit the report file yourself (no file edit tools on it): the scripts rewrite it, and an open editor copy
+   gets out of date. Your text goes into the answers file of `Complete-CrashReport.ps1`, which applies it.
 
 ## Which stages to run
 
@@ -80,16 +82,17 @@ Do not rewrite the report after stage 1. It is complete.
    Skip the rest of stage 2.
 3. The script has already filled section 2 of the report with a table per signature (work item, state, pre-verdict,
    why) and a **Result** line. `same (to confirm)` and `likely same` items are listed as `CONFIRM_ITEM=<file>` lines.
-4. For each `CONFIRM_ITEM=` file, read it (header, "Match evidence", repro steps, discussion, links) and check with
-   [references/stage2-confirm.md](references/stage2-confirm.md). Then edit the report:
-   - confirmed: replace `same (to confirm)` with `same` in the table, the **Result** line and the
-     `Existing work item` header row;
-   - not confirmed: write the correct verdict (`likely same`, `related`, `different`) with a short reason; if the
-     **Result** item changes, rewrite the Result line (next best match, or "no existing work item found" and keep the
-     draft bug text).
-5. Run `powershell -NoProfile -ExecutionPolicy Bypass -File "<scripts>\Test-CrashReport.ps1" -ReportPath "<report>" -Stage 1,2`.
-   Fix every `REPORT_ISSUE=` line and run it again until it prints `REPORT_OK`.
-6. Answer per signature: the work item link, your verdict, its state and what it means (fixed by which commit/PR,
+4. Run `powershell -NoProfile -ExecutionPolicy Bypass -File "<scripts>\Complete-CrashReport.ps1" -ReportPath "<report>"`.
+   It prints one `OPEN_ITEM=` line per work item to confirm (key `2<letter> #<id>`) and writes `ANSWERS_FILE=<file>`
+   with a `TODO:` line under each `## <key>` heading.
+5. For each `2<letter> #<id>` item, read the work item file it names (header, "Match evidence", repro steps,
+   discussion, links) and decide with [references/stage2-confirm.md](references/stage2-confirm.md). In the answers file
+   replace the `TODO:` line with `same - <reason>`, `likely same - <reason>`, `related - <reason>` or
+   `different - <reason>`. Answer every item. Keep the `## ` headings unchanged.
+6. Run the `NEXT_STEP=` command (`Complete-CrashReport.ps1 -ReportPath "<report>" -AnswersFile "<answers file>"`).
+   It updates the table, the **Result** line and the header, then checks the report. Repeat steps 4-6 until it prints
+   `REPORT_OK` (if stage 3 runs next, `REPORT_ISSUE=` lines about sections 3-5 are expected - continue with stage 3).
+7. Answer per signature: the work item link, your verdict, its state and what it means (fixed by which commit/PR,
    open, closed as duplicate...), or "no existing work item" plus the draft bug text from the report.
    Offer stage 3 if `SOURCE_AVAILABLE=true`, else say stage 3 needs a machine with the repository.
 
@@ -103,14 +106,19 @@ Only with `SOURCE_AVAILABLE=true`. Otherwise say that stage 3 needs a clone of t
    status on the analysis ref with the diff, commits that changed it, linked fixes with their diffs.
 3. Decide with [references/stage3-decide.md](references/stage3-decide.md). It tells you, per build type and evidence,
    which verdict to write and what the root cause section must contain.
-4. Replace every `_analyst: ..._` placeholder in sections 3, 4 and 5. Also set the header rows `Verdict` and
-   `Build commit` (and `Stages done`: remove "(evidence generated; verdict pending)").
+4. Run `Complete-CrashReport.ps1 -ReportPath "<report>"` (as in stage 2). It lists the open items of sections 3-5 as
+   `<section><letter> <label>` keys (e.g. `3A Still failing on the latest code?`, `5A Mechanism`, `5A Fix proposal`)
+   plus `Verdict`, and writes a new answers file. Replace every `TODO:` line with your answer; several lines, lists
+   and code blocks (fix proposal diffs) are fine. Optional extra headings: `## Build commit` (corrected or confirmed
+   build commit per version).
 5. You may run more read-only commands when the evidence is not enough: `git show <sha> -- <file>`,
    `git log -S"<code>" --oneline <build>..<ref> -- <file>`, or debugger queries with
    `<scripts>\Invoke-DumpQuery.ps1` (the digest has the exact command per dump; see
    [references/manual-cdb.md](references/manual-cdb.md) or [references/linux-cores.md](references/linux-cores.md)).
    Stop after two attempts that do not bring the fact you need, and write what is missing instead.
-6. Run `Test-CrashReport.ps1 -ReportPath "<report>"` until it prints `REPORT_OK`.
+6. Run the `NEXT_STEP=` command (`Complete-CrashReport.ps1 ... -AnswersFile "<answers file>"`). Fix every
+   `ANSWER_ISSUE=` / `REPORT_ISSUE=` line by listing again (step 4, a new answers file with only what is left) until
+   it prints `REPORT_OK`.
 7. Answer: the verdict, the fixing commit or the root cause (trigger and product defect separately when a script or
    configuration triggered it), and the confidence. Do not offer anything after stage 3.
 

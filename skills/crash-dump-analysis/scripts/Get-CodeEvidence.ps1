@@ -342,5 +342,5 @@ if (-not $NoReportUpdate -and $reportPath -and (Test-Path -LiteralPath $reportPa
     Set-ReportSection $reportPath 4 $sec4.ToString()
     Set-ReportSection $reportPath 5 $sec5.ToString()
     Write-Host "REPORT_UPDATED=$reportPath"
-    Write-Host "NEXT_STEP=Read $evidencePath, then replace every '_analyst: ..._' placeholder in sections 3-5 of $reportPath and the Verdict / Build commit rows of its header."
+    Write-Host "NEXT_STEP=Read $evidencePath, then list the open items and fill the answers file: powershell -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'Complete-CrashReport.ps1')`" -ReportPath `"$reportPath`""
 }

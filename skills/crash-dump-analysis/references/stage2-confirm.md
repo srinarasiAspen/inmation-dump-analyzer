@@ -52,11 +52,9 @@ Special cases:
 | Closed as Duplicate | Follow the duplicate link and judge that item. |
 | Closed as Obsolete / Not fixed / Copied to backlog | Not fixed. Say so. |
 
-## Editing the report
+## Writing the answer
 
-- Table: change the "Pre-verdict" cell to your verdict (`same`, `likely same`, `related`, `different`); add a short reason
-  if you changed it.
-- **Result** line: the best item and its meaning. If nothing is same or likely same: "no existing work item with this
-  crash found" and keep the draft bug text.
-- Header row `Existing work item`: `A: #<id> <title> (<verdict>, <state>/<reason>)` per signature, or `A: none found`.
-- Remove every "to confirm". Then run `Test-CrashReport.ps1`.
+In the answers file of `Complete-CrashReport.ps1`, under `## <letter-key> #<id>`: `same - <reason>`,
+`likely same - <reason>`, `related - <reason>` or `different - <reason>` (one sentence; name the matching or the
+differing frame / exception). The script then updates the table, the **Result** line (a rejected best match becomes
+"no confirmed existing work item"; the draft bug text stays) and the `Existing work item` header row.

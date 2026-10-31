@@ -575,6 +575,7 @@ try {
         foreach ($itemId in @($verified.Values | ForEach-Object { $_ } | Where-Object { $_.Verdict -match '^(same|likely same)' } | ForEach-Object { [int]$_.Id } | Select-Object -Unique)) {
             Write-Host "CONFIRM_ITEM=$($fetched[[int]$itemId].Path)"
         }
+        if (Test-Path -LiteralPath $reportPath) { Write-Host "NEXT_STEP=Confirm the pre-verdicts: powershell -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'Complete-CrashReport.ps1')`" -ReportPath `"$reportPath`"" }
     }
 }
 catch [InvalidOperationException] {

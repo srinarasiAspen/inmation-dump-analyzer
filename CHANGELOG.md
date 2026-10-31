@@ -22,6 +22,8 @@ First release as a standalone agent plugin (previously `tools/crash-dump-analyze
 - Stage 2 `-Auto`: search, candidate fetch, linked duplicates, pre-verdicts and report section in one command.
 - Stage 3 `Get-CodeEvidence.ps1`: build vs. latest code of the crashing functions, commits, linked fixes, backports.
 - `Test-CrashReport.ps1`: report linter the model runs until `REPORT_OK`.
+- `Complete-CrashReport.ps1`: the model answers open items in a separate answers file (`## <key>` + text); the script
+  applies them to the report. No direct report edits, so no stale editor buffers or broken tables.
 - `Invoke-DumpQuery.ps1`: read-only cdb/gdb queries with the run's symbols; no hand-built debugger command lines.
 
 ### Linux core dumps (OT Data Fabric containers)

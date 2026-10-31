@@ -1,8 +1,8 @@
 # Stage 3: deciding the verdict and the root cause
 
 Input: `code-evidence.md` (written by `Get-CodeEvidence.ps1`), the digest, and the report sections 1-2.
-Output: every `_analyst: ..._` placeholder in report sections 3-5 replaced, plus the header rows `Verdict` and
-`Build commit`.
+Output: an answer for every open item that `Complete-CrashReport.ps1` lists for sections 3-5 (keys like
+`3A Still failing on the latest code?`, `5A Mechanism`), plus `## Verdict` and, when you checked it, `## Build commit`.
 
 ## Step 1 - can the build commit be trusted?
 
@@ -12,7 +12,7 @@ Output: every `_analyst: ..._` placeholder in report sections 3-5 replaced, plus
 | `high` (release tag, version bump commit) | Same as exact. |
 | `medium` / `low` (estimated from the build time) | Check the marked faulting line: is it code that can produce the exception (a dereference for an access violation, the asserted call for an assert, a throw for a C++ exception)? If yes, keep it and say "estimated, consistent with the PDB line". If the line is unrelated (blank, comment, a different function), the estimate is wrong: write that, set the verdict to `Inconclusive`, and name what is needed (the build's commit, e.g. from `build_info.txt` of the build folder). |
 
-Write the header row `Build commit`: `<sha10> (<confidence>, <method>; consistent with the PDB source line)`.
+Answer `## Build commit` with: `<sha10> (<confidence>, <method>; consistent with the PDB source line)`.
 
 ## Step 2 - release build or dev build?
 

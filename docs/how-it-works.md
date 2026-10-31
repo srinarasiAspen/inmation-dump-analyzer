@@ -11,6 +11,7 @@ the `KEY=value` lines the scripts print; this document explains what is behind t
 | `Search-TfsCrashBugs.ps1` | 2 | TFS full-text search per signature; `-Auto` fetches candidates, pre-verdicts them and fills report section 2 |
 | `Get-CodeEvidence.ps1` | 3 | Build commit, faulting function at build vs. latest code, commits and linked fixes -> `code-evidence.md`, report sections 3-5 with placeholders |
 | `Test-CrashReport.ps1` | 2, 3 | Report linter: `REPORT_ISSUE=` per unfinished part, `REPORT_OK` when done |
+| `Complete-CrashReport.ps1` | 2, 3 | Lists the open items (pre-verdicts to confirm, `_analyst` placeholders, Verdict), writes an answers template, applies the answers to the report and runs the linter - the model never edits the report itself |
 | `Invoke-DumpQuery.ps1` | any | Read-only cdb/gdb queries against a dump of a run with the run's verified symbols |
 | `Test-AnalyzerSetup.ps1` | - | Machine check: cdb, config, folders, source repository, shares, TFS, WSL/gdb, docker |
 

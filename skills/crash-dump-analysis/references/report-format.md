@@ -2,7 +2,7 @@
 
 The collector writes the report (`REPORT_PATH=`): next to the dump (`<dump>.crash-report.md`), or `crash-report.md` in
 the dump folder, or the run folder if that is read-only. An existing report is never overwritten (a timestamp is
-added). Stages 2 and 3 replace their own sections in the same file. You only edit what the steps tell you to.
+added). Stages 2 and 3 replace their own sections in the same file; `Complete-CrashReport.ps1` applies your answers.
 
 ```markdown
 # Crash analysis: <short title>
@@ -26,10 +26,10 @@ added). Stages 2 and 3 replace their own sections in the same file. You only edi
 ## Artifacts
 ```
 
-Editing rules:
-- Keep the section headings exactly as they are (`## 2. Existing TFS work items` ...). Scripts find sections by them.
-- Header rows: change only the value cell (`| Verdict | <value> |`), one line per row; use `<br>` for line breaks.
+Rules for your text (it reaches the report only through the answers file of `Complete-CrashReport.ps1`; never edit
+the report file directly):
+- Keep the `## <key>` headings of the answers file exactly as written; replace only the `TODO:` lines.
 - Signatures are called A, B, C in every section and in the chat.
-- Replace each `_analyst: ..._` placeholder with your text (no underscores around it).
+- Header answers (`## Verdict`, `## Build commit`) are one value; use `A: ...; B: ...` for several signatures.
 - Mark hypotheses as such and give a confidence; facts get a source (dump, PDB line, git commit, work item).
-- Run `Test-CrashReport.ps1 -ReportPath <report>` at the end of stages 2 and 3 until it prints `REPORT_OK`.
+- `Complete-CrashReport.ps1 -AnswersFile` runs `Test-CrashReport.ps1` at the end; repeat until `REPORT_OK`.
