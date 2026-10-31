@@ -315,27 +315,44 @@ function Get-LinuxSysroot($Config, [string]$Version, [string]$BuildId, [string]$
 
 #region gdb run and parsing
 
+# gdb command files: the first one loads executable, debug info and core; every further one is a section. gdb stops a
+# command file at its first error but continues with the next -x file, so a failing query (no frame 5, no __abort_msg
+# symbol, no stack) cannot hide the other sections.
 function New-GdbCommands([string]$Sysroot, [string]$DebugDir, [string]$Exe, [string]$Core) {
-    $c = @(
+    $setup = @(
         'set pagination off', 'set width 0', 'set height 0', 'set confirm off', 'set print frame-arguments scalars', 'set print demangle on', 'set print asm-demangle on',
         'set auto-load safe-path /', "set debug-file-directory $DebugDir"
     )
     # Without the image libraries gdb would load the host's libraries and name frames wrongly.
-    $c += "set sysroot $(if ($Sysroot) { $Sysroot } else { '/nonexistent-sysroot' })"
-    if ($Exe) { $c += "file $Exe" }
-    $c += "core-file $Core"
-    $c += 'echo <<<SECTION:siginfo>>>\n', 'p $_siginfo'
+    $setup += "set sysroot $(if ($Sysroot) { $Sysroot } else { '/nonexistent-sysroot' })"
+    if ($Exe) { $setup += "file $Exe" }
+    $setup += "core-file $Core"
+    $chunks = New-Object Collections.Generic.List[object]
+    $chunks.Add([string[]]$setup)
+    $chunks.Add([string[]]@('echo <<<SECTION:siginfo>>>\n', 'p $_siginfo'))
     # glibc keeps the assert / fatal error text in __abort_msg (struct abort_msg_s { unsigned size; char msg[]; }).
-    $c += 'echo <<<SECTION:abortmsg>>>\n', 'x/s *(char**)&__abort_msg + 4'
-    $c += 'echo <<<SECTION:stack>>>\n', 'bt 60'
-    $c += 'echo <<<SECTION:registers>>>\n', 'info registers'
-    $c += 'echo <<<SECTION:disasm>>>\n', 'x/12i $pc'
-    $c += 'echo <<<SECTION:locals>>>\n'
-    for ($f = 0; $f -lt 6; $f++) { $c += "frame $f", 'info args', 'info locals' }
-    $c += 'echo <<<SECTION:modules>>>\n', 'info sharedlibrary'
-    $c += 'echo <<<SECTION:threads>>>\n', 'thread apply all bt 25'
-    $c += 'echo <<<SECTION:end>>>\n'
-    return $c
+    $chunks.Add([string[]]@('echo <<<SECTION:abortmsg>>>\n', 'x/s *(char**)&__abort_msg + 4'))
+    $chunks.Add([string[]]@('echo <<<SECTION:stack>>>\n', 'bt 60'))
+    $chunks.Add([string[]]@('echo <<<SECTION:registers>>>\n', 'info registers'))
+    $chunks.Add([string[]]@('echo <<<SECTION:disasm>>>\n', 'x/12i $pc'))
+    $chunks.Add([string[]]@('echo <<<SECTION:locals>>>\n'))
+    for ($f = 0; $f -lt 6; $f++) { $chunks.Add([string[]]@("frame $f", 'info args', 'info locals')) }
+    $chunks.Add([string[]]@('echo <<<SECTION:modules>>>\n', 'info sharedlibrary'))
+    $chunks.Add([string[]]@('echo <<<SECTION:threads>>>\n', 'thread apply all bt 25'))
+    $chunks.Add([string[]]@('echo <<<SECTION:end>>>\n'))
+    return , $chunks.ToArray()
+}
+
+# Writes the command files (<prefix>.cmd for the setup, <prefix>-<n>.cmd for the rest) and runs gdb with one -x per file.
+function Invoke-GdbChunks($Config, [object[]]$Chunks, [string]$Folder, [string]$Prefix) {
+    $gdbArgs = @('gdb', '-batch', '-nx')
+    $wslFolder = ConvertTo-WslPath $Config $Folder
+    for ($i = 0; $i -lt $Chunks.Count; $i++) {
+        $name = if ($i -eq 0) { "$Prefix.cmd" } else { "$Prefix-$i.cmd" }
+        [IO.File]::WriteAllText((Join-Path $Folder $name), ((@($Chunks[$i]) -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+        $gdbArgs += @('-x', "$wslFolder/$name")
+    }
+    return (Invoke-Wsl $Config $gdbArgs)
 }
 
 # Splits 'name(args)' into name and '(args)' at the balanced trailing parenthesis group; 'operator()' is kept intact.
@@ -544,10 +561,9 @@ function Invoke-LinuxCoreDump($Ctx) {
         $debugDir = ConvertTo-WslPath $config (Join-Path (Expand-PathValue (Get-Cfg $config 'localSymbolCache' "$env:LOCALAPPDATA\inmation-crash-analysis\symbols")) 'linux')
         $coreWsl = ConvertTo-WslPath $config $Ctx.DumpFile
         $exeWsl = if ($sysroot) { "$($sysroot.Path)/$($exe.Path.TrimStart('/'))" } else { $null }
-        $cmdFile = Join-Path $Ctx.DumpOut 'gdb.cmd'
-        [IO.File]::WriteAllText($cmdFile, ((New-GdbCommands $(if ($sysroot) { $sysroot.Path } else { $null }) $debugDir $exeWsl $coreWsl) -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+        $chunks = New-GdbCommands $(if ($sysroot) { $sysroot.Path } else { $null }) $debugDir $exeWsl $coreWsl
         Write-Host 'Running gdb (WSL) ...'
-        $run = Invoke-Wsl $config @('gdb', '-batch', '-nx', '-x', (ConvertTo-WslPath $config $cmdFile))
+        $run = Invoke-GdbChunks $config $chunks $Ctx.DumpOut 'gdb'
         $gdbLog = Join-Path $Ctx.DumpOut 'gdb.log'
         Set-Content -LiteralPath $gdbLog -Value ($run.Lines | Where-Object { $_ -notmatch '^\[New LWP \d+\]$' }) -Encoding UTF8
         $sections = Split-CdbSections $run.Lines

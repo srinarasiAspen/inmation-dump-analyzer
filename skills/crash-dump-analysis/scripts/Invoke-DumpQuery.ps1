@@ -93,14 +93,16 @@ if ($linux) {
     if ($problem) { throw $problem }
     $base = Join-Path $dumpOut 'gdb.cmd'
     if (-not (Test-Path -LiteralPath $base)) { throw "gdb.cmd of the run not found: $base" }
-    $prefix = New-Object Collections.Generic.List[string]
-    foreach ($line in [IO.File]::ReadAllLines($base)) { $prefix.Add($line); if ($line -like 'core-file *') { break } }
-    if ($Frame -ge 0) { $prefix.Add("frame $Frame") }
-    $prefix.Add("echo $marker\n")
-    foreach ($c in $commands) { $prefix.Add($c) }
-    $cmdFile = Join-Path $dumpOut "query-$stamp.gdb.txt"
-    [IO.File]::WriteAllText($cmdFile, (($prefix -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-    $run = Invoke-Wsl $config @('gdb', '-batch', '-nx', '-x', (ConvertTo-WslPath $config $cmdFile))
+    $setup = New-Object Collections.Generic.List[string]
+    foreach ($line in [IO.File]::ReadAllLines($base)) { $setup.Add($line); if ($line -like 'core-file *') { break } }
+    # One command file per command: gdb stops a file at its first error but runs the next file.
+    $chunks = New-Object Collections.Generic.List[object]
+    $chunks.Add([string[]]$setup)
+    $first = @("echo $marker\n")
+    if ($Frame -ge 0) { $first += "frame $Frame" }
+    $chunks.Add([string[]]$first)
+    foreach ($c in $commands) { $chunks.Add([string[]]@($c)) }
+    $run = Invoke-GdbChunks $config $chunks.ToArray() $dumpOut "query-$stamp"
     Set-Content -LiteralPath $queryLog -Value $run.Lines -Encoding UTF8
     $lines = @($run.Lines)
 }
@@ -119,7 +121,7 @@ else {
 }
 
 $start = -1
-for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match [regex]::Escape($marker)) { $start = $i + 1; break } }
+for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "^\s*$([regex]::Escape($marker))\s*$") { $start = $i + 1; break } }
 $output = if ($start -ge 0) { @($lines[$start..($lines.Count - 1)]) } else { @($lines) }
 $output = @($output | Where-Object { $_ -notmatch '^(quit:|0:\d+> q$|NatVis script unloaded)' -and $_ -notmatch '^\[New LWP \d+\]$' })
 if ($Filter) { $output = @($output | Where-Object { $_ -match $Filter }) }
