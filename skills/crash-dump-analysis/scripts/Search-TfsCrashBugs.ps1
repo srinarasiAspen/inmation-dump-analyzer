@@ -579,6 +579,13 @@ try {
         $section = New-Stage2Section $summary $out $verified $fetched $letters
         $verifyPath = Join-Path $OutDir 'tfs-verification.md'
         Set-Content -LiteralPath $verifyPath -Value $section.Body -Encoding UTF8
+        $verifyData = @(foreach ($sig in $verified.Keys) {
+                [ordered]@{ signature = $sig; letter = $(if ($letters.ContainsKey($sig)) { $letters[$sig] } else { $null }); items = @($verified[$sig] | ForEach-Object {
+                            $it = $fetched[[int]$_.Id]
+                            [ordered]@{ id = $it.Id; url = $it.Url; title = $it.Title; state = $it.State; reason = $it.Reason; meaning = $it.Meaning; verdict = $_.Verdict; why = $_.Reason; via = $_.Via; integratedIn = $it.IntegratedIn; commits = @($it.Links.Commits | ForEach-Object { $_.Sha }); pullRequests = @($it.Links.PullRequests | ForEach-Object { $_.Id }); file = $it.Path }
+                        }) }
+            })
+        ConvertTo-Json -InputObject $verifyData -Depth 6 | Set-Content -LiteralPath (Join-Path $OutDir 'tfs-verification.json') -Encoding UTF8
         Write-Host "TFS_VERIFY_MD=$verifyPath"
         $reportPath = [string](Get-Cfg $summary 'reportPath' '')
         if ($reportPath -and (Test-Path -LiteralPath $reportPath)) {
