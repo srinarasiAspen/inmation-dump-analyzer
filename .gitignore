@@ -1,0 +1,12 @@
+# Crash data must never be committed
+*.dmp
+*.dmp.zip
+*.pdb
+*.dbg
+*.core
+core.*
+
+# Local output
+/out/
+/tests/output/
+*.local.json

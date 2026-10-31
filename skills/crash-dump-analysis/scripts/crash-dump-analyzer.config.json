@@ -1,0 +1,105 @@
+{
+  "productLines": [
+    {
+      "name": "OT Data Fabric / 2.x (file version 26+)",
+      "minMajor": 26,
+      "releaseRoots": [
+        "\\\\file2.inmationdev.com\\LatestRelease\\OT_DATA_FABRIC"
+      ],
+      "devRoots": [
+        "\\\\inmsvr002\\LatestAutoBuild\\robotic\\aspen"
+      ],
+      "brandedReleaseRoots": [
+        "\\\\file2.inmationdev.com\\LatestRelease\\BRANDED_RELEASE\\{brand}"
+      ],
+      "brandedDevRoots": [
+        "\\\\inmsvr002\\LatestAutoBuild\\robotic\\{brand}"
+      ],
+      "compareRef": "origin/main"
+    },
+    {
+      "name": "inmation (v1.x)",
+      "releaseRoots": [
+        "\\\\file2.inmationdev.com\\LatestRelease\\RELEASE"
+      ],
+      "devRoots": [
+        "\\\\inmsvr002\\LatestAutoBuild\\robotic\\aspen"
+      ],
+      "brandedReleaseRoots": [
+        "\\\\file2.inmationdev.com\\LatestRelease\\BRANDED_RELEASE\\{brand}"
+      ],
+      "brandedDevRoots": [
+        "\\\\inmsvr002\\LatestAutoBuild\\robotic\\{brand}"
+      ],
+      "compareRef": "origin/main-legacy"
+    }
+  ],
+  "brands": [
+    { "name": "aspen", "pathHints": [ "AspenTech" ] },
+    { "name": "plantweb", "pathHints": [ "AMS Optics", "PlantWeb", "Emerson" ] }
+  ],
+  "devBuildRule": "oddMinor",
+  "versionFolderPattern": "v{version}",
+  "symbolArchive": "symbols\\symbols.zip",
+  "binaryFolder": "inmation.root\\bin",
+  "manifestPattern": "manifest_*.txt",
+  "buildInfoFile": "build_info.txt",
+  "binaries": {
+    "inmation.exe": "inmation.pdb",
+    "inmation32.exe": "inmation32.pdb"
+  },
+  "localSymbolCache": "%LOCALAPPDATA%\\inmation-crash-analysis\\symbols",
+  "workRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\runs",
+  "extractRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\extracted",
+  "debuggerPath": "",
+  "useMicrosoftSymbolServer": false,
+  "cdbTimeoutSeconds": 900,
+  "buildSourceRoots": [
+    "E:\\ws\\"
+  ],
+  "topFramesForHistory": 6,
+  "vcpkgPortRoots": [
+    "vcpkg-ports-inmation",
+    "vcpkg-ports",
+    "vcpkg-ports-ci"
+  ],
+  "vcpkgSubmodule": "vcpkg",
+  "localBuildtrees": "",
+  "scriptContextFrames": [
+    { "function": "inmation::net::prot::ox::sci::Calls::run_script", "variable": "script", "kind": "Web API / SCI run_script" }
+  ],
+  "maxScriptBytes": 2000000,
+  "luaLibraryRecovery": {
+    "enabled": true,
+    "maxTokens": 3,
+    "maxTokenHits": 500,
+    "maxHits": 6,
+    "windowBytes": 131072
+  },
+  "tfs": {
+    "url": "https://tfs3.inmationdev.com/tfs/inmation",
+    "project": "system_inmation",
+    "apiVersion": "4.1",
+    "workItemTypes": [ "Bug" ],
+    "titleFields": [ "System.Title" ],
+    "textFields": [ "Microsoft.VSTS.TCM.ReproSteps", "System.Description", "Microsoft.VSTS.TCM.SystemInfo", "System.History" ],
+    "maxFrameTerms": 6,
+    "maxHitsPerTerm": 200,
+    "top": 15
+  },
+  "git": {
+    "remote": "origin",
+    "fetch": true,
+    "compareRef": "origin/main-legacy",
+    "tagPatterns": [
+      "v{version}"
+    ],
+    "branchPatterns": [
+      "origin/release/v{major}.{minor}",
+      "origin/v{major}.{minor}",
+      "release/v{major}.{minor}",
+      "v{major}.{minor}"
+    ],
+    "versionCommitMessage": "make v{major}.{minor}.{revision}"
+  }
+}
