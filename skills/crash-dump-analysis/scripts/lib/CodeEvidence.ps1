@@ -63,7 +63,7 @@ function Find-FunctionDefinitions([string[]]$Lines, [string]$Class, [string]$Met
     for ($i = 1; $i -le $Lines.Count; $i++) {
         $line = $Lines[$i - 1]
         $isQualified = $qualified -and $line -match $qualified
-        $isPlain = -not $isQualified -and $line -match $plain -and $line -match "^\s*(?:[\w:<>,\*&~\s]+\s)?~?$m\s*\(" -and $line -notmatch '^\s*(return|if|while|for|switch|else|case|throw|co_return)\b' -and $line -notmatch '[=.>]\s*~?\w*\s*\(' 
+        $isPlain = -not $isQualified -and $line -match $plain -and $line -match "^\s*(?:[\w:<>,\*&~\s]+\s)?~?$m\s*\(" -and $line -notmatch '^\s*(return|if|while|for|switch|else|case|throw|co_return)\b' -and $line -notmatch '(=|\.|->)\s*~?\w*\s*\(' 
         if (-not ($isQualified -or $isPlain)) { continue }
         if ($line -match '^\s*(//|\*)') { continue }
         $end = Get-BlockEnd $Lines $i

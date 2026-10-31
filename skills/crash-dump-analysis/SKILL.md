@@ -24,7 +24,9 @@ Run every command with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`
    required PDB. No function names, no root cause, no "fixed" claim for it. Never use a PDB of another build.
 6. Separate facts (dump, PDB, git, TFS) from hypotheses. Say how sure you are.
 7. Never edit the report file yourself (no file edit tools on it): the scripts rewrite it, and an open editor copy
-   gets out of date. Your text goes into the answers file of `Complete-CrashReport.ps1`, which applies it.
+   gets out of date. Your text goes into the answers file of `Complete-CrashReport.ps1`, which applies it. Do not open
+   the report to check what a script did either - rely on the `KEY=value` lines (`REPORT_UPDATED=`, `OPEN_ITEM=`).
+   The answers file already exists when the script prints it: edit it (replace the `TODO:` lines), do not create it.
 
 ## Which stages to run
 

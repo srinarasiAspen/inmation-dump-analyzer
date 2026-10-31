@@ -57,6 +57,7 @@ if ($Stage -contains 3) {
     if ($verdict -match '^\s*not analyzed') { $issues.Add("Header 'Verdict' is still 'not analyzed'. Use: Fixed in <sha> / Fixed - related risk remains / Still present / Inconclusive (release), or Root cause identified / Hypothesis (<confidence>) (dev).") }
     elseif ($verdict -notmatch 'Fixed|Still present|Inconclusive|Root cause identified|Hypothesis|pending PDB') { $issues.Add("Header 'Verdict' ('$verdict') uses none of the allowed verdicts.") }
     if ([string](Get-ReportHeaderValue $ReportPath 'Compared against') -match '^\s*not yet') { $issues.Add("Header 'Compared against' still says 'not yet'.") }
+    if ([string](Get-ReportHeaderValue $ReportPath 'Build commit') -match 'not verified before stage 3') { $issues.Add("Header 'Build commit' still says 'not verified before stage 3': check the estimated commit (stage3-decide.md step 1) and answer '## Build commit'.") }
 }
 if ($text -match '_analyst:' -and -not ($Stage -contains 3)) { $issues.Add("Placeholders '_analyst: ..._' exist but stage 3 is not listed in 'Stages done'.") }
 

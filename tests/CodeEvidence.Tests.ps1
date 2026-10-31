@@ -59,6 +59,22 @@ Describe 'function boundaries' {
         Assert-Equal 1 $defs.Count
         Assert-Equal 24 $defs[0].Start
     }
+    It 'finds free functions with a template return type, but not member calls' {
+        $src = @(
+            'namespace DatasourceApi {',
+            'std::unordered_map<idandft_key, IP21_grpc::Result> ReadHistory(',
+            '    const Request& r)',
+            '{',
+            '    auto x = other->ReadHistory(r);',
+            '    return x;',
+            '}',
+            '}'
+        )
+        $defs = Find-FunctionDefinitions $src 'DatasourceApi' 'ReadHistory'
+        Assert-Equal 1 $defs.Count
+        Assert-Equal 2 $defs[0].Start
+        Assert-Equal 7 $defs[0].End
+    }
     It 'selects the definition that contains the faulting line' {
         $defs = Find-FunctionDefinitions $script:CppSample 'cache' 'get'
         Assert-Equal 6 (Select-FunctionDefinition $defs 14 $script:CppSample $null).Start

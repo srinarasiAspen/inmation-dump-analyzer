@@ -155,7 +155,7 @@ function Get-CrashClassification($Exception, $Assertion, $Frames, $Signature, $C
             else {
                 $result.category = 'wild-pointer'
                 $result.title = "Access violation ($verb at invalid non-null address)$inText"
-                $result.text = "Access violation: $verb at $addrText$inText$where. The address is not null, so the pointer was garbage: typically use-after-free, a data race on the object, or memory corruption."
+                $result.text = "Access violation: $verb at $addrText$inText$where. The address is not null, so the pointer was invalid: typically use-after-free, a data race on the object, an index or length out of range (base register valid, offset too large), or memory corruption."
                 $result.stackRole = 'culprit-or-victim'
                 $result.hints += 'Check threads.txt for other threads using the same object, and the object lifetime (who frees it).'
             }

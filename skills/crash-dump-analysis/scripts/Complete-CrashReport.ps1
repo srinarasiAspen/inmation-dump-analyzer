@@ -81,6 +81,10 @@ function Get-OpenItems([string]$Text) {
         if (-not $allowed) { $allowed += 'Fixed in <sha> / Fixed - related risk remains / Still present / Inconclusive / Root cause identified / Hypothesis (<confidence>)' }
         $items.Add([pscustomobject]@{ Key = 'Verdict'; Kind = 'header'; Prompt = "one verdict per signature, e.g. 'A: ...; B: ...'. Allowed - $($allowed -join '; ')" })
     }
+    $buildRow = [string](Get-ReportHeaderValue $ReportPath 'Build commit')
+    if ($buildRow -match 'not verified before stage 3' -and ($stagesDone -match '\b3\b' -or @($items | Where-Object { $_.Kind -eq 'placeholder' }).Count)) {
+        $items.Add([pscustomobject]@{ Key = 'Build commit'; Kind = 'header'; Prompt = "check the estimated build commit (stage3-decide.md step 1) and write per version '<version>: <sha10> (<confidence>, <method>; consistent with the PDB source line)' or '<version>: not trustworthy - <why>'. Now: $($buildRow -replace '<br>', ' / ')" })
+    }
     return , $items.ToArray()
 }
 

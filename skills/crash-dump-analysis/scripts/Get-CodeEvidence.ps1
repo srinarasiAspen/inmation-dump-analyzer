@@ -88,10 +88,10 @@ function Get-FunctionEvidence($Frame, [string]$BuildCommit, [string]$RefCommit, 
         if ($candidate) { $refPath = $candidate; $refLines = Get-FileAt $RefCommit $refPath }
     }
     $ev.refPath = $refPath
-    if (-not $refLines) { $ev.status = "file not found on $RefName"; return [pscustomobject]$ev }
+    if (-not $refLines) { $ev.status = 'file not found'; return [pscustomobject]$ev }
     $refDef = if ($fn.Usable) { Select-FunctionDefinition (Find-FunctionDefinitions $refLines $fn.Class $fn.Method) 0 $refLines $ev.faultingLine } else { $null }
     if (-not $refDef) {
-        $ev.status = "function not found on $RefName (removed, renamed or not parsable)"
+        $ev.status = 'function not found (removed, renamed or not parsable)'
         return [pscustomobject]$ev
     }
     $ev.refRange = "$($refDef.Start)-$($refDef.End)"
@@ -338,7 +338,13 @@ if (-not $NoReportUpdate -and $reportPath -and (Test-Path -LiteralPath $reportPa
     $stages = [string](Get-ReportHeaderValue $reportPath 'Stages done')
     if ($stages -notmatch '\b3\b') { $stages = "$stages, 3 code analysis (evidence generated; verdict pending)" }
     $refs = @($dumps | Where-Object { Get-Prop $_ 'compare.ref' } | ForEach-Object { "$(Get-Prop $_ 'compare.ref') @ $(Get-Short ([string](Get-Prop $_ 'compare.commit')))" } | Select-Object -Unique)
-    Set-ReportSection $reportPath 3 $sec3.ToString() @{ 'Stages done' = $stages; 'Compared against' = ($refs -join "`n") }
+    $headerRows = @{ 'Stages done' = $stages; 'Compared against' = ($refs -join "`n") }
+    # Exact / high confidence build commits need no check; estimated ones stay open for the analyst (Complete-CrashReport).
+    $buildRow = [string](Get-ReportHeaderValue $reportPath 'Build commit')
+    if ($buildRow -match 'not verified before stage 3') {
+        $headerRows['Build commit'] = (@($buildRow -split '<br>' | ForEach-Object { if ($_ -match '\((exact|high),') { $_ -replace ' - not verified before stage 3$', '' } else { $_ } }) -join "`n")
+    }
+    Set-ReportSection $reportPath 3 $sec3.ToString() $headerRows
     Set-ReportSection $reportPath 4 $sec4.ToString()
     Set-ReportSection $reportPath 5 $sec5.ToString()
     Write-Host "REPORT_UPDATED=$reportPath"

@@ -10,14 +10,14 @@ Describe 'Complete-CrashReport' {
 
         It 'lists stage 2 confirmations, placeholders by section and signature, and the verdict' {
             $keys = @($listing | Where-Object { $_ -like 'OPEN_ITEM=*' } | ForEach-Object { ($_ -replace '^OPEN_ITEM=', '' -split ' \| ')[0] })
-            Assert-Equal @('2A #40551', '2B #34716', '3A Still failing on the latest code?', '3B Still failing on the latest code?', '5A Mechanism', '5A Fix proposal', '5B Mechanism', '5B Fix proposal', 'Verdict') $keys
+            Assert-Equal @('2A #40551', '2B #34716', '3A Still failing on the latest code?', '3B Still failing on the latest code?', '5A Mechanism', '5A Fix proposal', '5B Mechanism', '5B Fix proposal', 'Verdict', 'Build commit') $keys
             Assert-True (@($listing | Where-Object { $_ -like 'OPEN_ITEM=Verdict*dev: Root cause identified*' }).Count -eq 1) 'dev build verdicts offered'
         }
         It 'writes a template with one heading and a TODO line per item' {
             Assert-True (Test-Path -LiteralPath $answersPath)
             $t = [IO.File]::ReadAllText($answersPath)
-            Assert-Equal 9 ([regex]::Matches($t, '(?m)^## ').Count)
-            Assert-Equal 9 ([regex]::Matches($t, '(?m)^TODO: ').Count)
+            Assert-Equal 10 ([regex]::Matches($t, '(?m)^## ').Count)
+            Assert-Equal 10 ([regex]::Matches($t, '(?m)^TODO: ').Count)
         }
 
         $answers = @'
@@ -81,7 +81,7 @@ TODO: yes / no / unclear
         It 'lists only the items still open on the next round' {
             $again = @(& $script -ReportPath $report 6>&1 | ForEach-Object { "$_" })
             $keys = @($again | Where-Object { $_ -like 'OPEN_ITEM=*' } | ForEach-Object { ($_ -replace '^OPEN_ITEM=', '' -split ' \| ')[0] })
-            Assert-Equal @('3B Still failing on the latest code?', '5B Mechanism', '5B Fix proposal') $keys
+            Assert-Equal @('3B Still failing on the latest code?', '5B Mechanism', '5B Fix proposal', 'Build commit') $keys
             Assert-True (@($again | Where-Object { $_ -like 'ANSWERS_FILE=*answers-2.md' }).Count -eq 1) 'a new file each round'
         }
     }

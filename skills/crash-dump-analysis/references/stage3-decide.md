@@ -32,6 +32,11 @@ Use the status lines of the faulting function(s) and the linked fixes:
 
 "The file changed" is not proof. Read the diff and say in one sentence why it fixes (or does not fix) this crash.
 
+Release builds are usually built from a release branch, so the build commit is often **not an ancestor** of the
+analysis ref. That is normal: the function status lines already compare the code at the build commit with the ref.
+If the crash is inside an external DLL whose source is not in the repository (e.g. `h21sys`), judge only the inmation
+side (the first inmation frame and the arguments it passes) and say that a fix inside the DLL cannot be seen here.
+
 Section 4 (release builds) - fixing commit:
 - `Fixed`: sha, date, author, subject (PR / work item), the diff hunk that fixes it (copy from code-evidence.md), and
   where it is available: release branches and tags from code-evidence.md; whether the crashed version's branch has it
@@ -56,7 +61,7 @@ Fill the four lines. Use only facts you can point to: the exception and address,
 | Classification | Mechanism to explain | Typical bad value source |
 |---|---|---|
 | `null-pointer` | Which pointer is null: the register in the faulting instruction, the member offset = the access address. | An object not created / already reset, a failed lookup not checked, a missing input. |
-| `wild-pointer` | A pointer to freed or foreign memory was used. Say which object, and who frees it. | Use-after-free (object lifetime), a race (check `threads.txt` for other threads on the same object), a view into a buffer that died. |
+| `wild-pointer` | A pointer to freed or foreign memory was used, or a valid base plus an out-of-range index (disassembly `[base+index]`: check which register is huge). Say which object / buffer, and who frees or sizes it. | Use-after-free (object lifetime), a race (check `threads.txt` for other threads on the same object), a view into a buffer that died, an unchecked length from input data. |
 | `bad-code-pointer` | A call through a corrupt function pointer / vtable. | Object destroyed while in use; memory corruption. |
 | `failed-assertion` | Why the asserted condition was false. | Unvalidated input reaching a library (e.g. an empty collection name from a script). The assert site is the culprit. |
 | `unhandled-cpp-exception` | Which call threw (throw site), the error code meaning, why no handler caught it. | Throw from a destructor or noexcept function; a lock/thread misuse (`resource_deadlock_would_occur` = a thread joins/locks itself). |
