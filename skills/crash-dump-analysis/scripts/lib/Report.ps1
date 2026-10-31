@@ -90,6 +90,20 @@ function Get-BuildText($Dump) {
     return ($parts -join ' ')
 }
 
+# Letter (A, B, ...) per signature group with verified symbols, in the order of summary.groups. All stages use it.
+function Get-ReportGroupLetters($Summary) {
+    $letters = @{}
+    $n = 0
+    $dumps = @(Get-Prop $Summary 'dumps')
+    foreach ($g in @(Get-Prop $Summary 'groups')) {
+        $first = $dumps | Where-Object { (Get-Prop $_ 'dump.path') -eq @(Get-Prop $g 'dumps')[0] } | Select-Object -First 1
+        if (-not $first -or (Get-Prop $first 'blocked') -or -not (Get-Prop $first 'module')) { continue }
+        $letters[[string](Get-Prop $g 'signature')] = [string][char](65 + $n)
+        $n++
+    }
+    return $letters
+}
+
 function Get-ReportTitle($Summary) {
     $groups = @(Get-Prop $Summary 'groups')
     $titles = @()
@@ -144,11 +158,12 @@ function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-anal
     & $add "## $($script:ReportSections[1])"
 
     $letter = 0
+    $letters = Get-ReportGroupLetters $Summary
     foreach ($g in $groups) {
         $members = @($dumps | Where-Object { @(Get-Prop $g 'dumps') -contains (Get-Prop $_ 'dump.path') })
         if ($members.Count -eq 0 -or (Get-Prop $members[0] 'blocked')) { continue }
         $rep = $members[0]
-        $name = [string][char](65 + $letter); $letter++
+        $name = $letters[[string](Get-Prop $g 'signature')]; $letter++
         $cls = Get-Prop $rep 'classification'
         & $add ''
         & $add "### Signature $name - $(Get-Prop $cls 'title') ($($members.Count) dump$(if ($members.Count -ne 1) { 's' }))"
@@ -252,11 +267,12 @@ function New-ChatSummaryMarkdown($Summary, [string]$ReportPath) {
     & $add "**Crash summary (stage 1)** - $(Get-Prop $Summary 'uniqueDumps') unique dump(s)$(if ($copies -gt 0) { " ($copies identical copies folded)" }). Report: $ReportPath"
     & $add ''
     $letter = 0
+    $letters = Get-ReportGroupLetters $Summary
     foreach ($g in @(Get-Prop $Summary 'groups')) {
         $members = @($dumps | Where-Object { @(Get-Prop $g 'dumps') -contains (Get-Prop $_ 'dump.path') })
         if ($members.Count -eq 0 -or (Get-Prop $members[0] 'blocked')) { continue }
         $rep = $members[0]
-        $name = [string][char](65 + $letter); $letter++
+        $name = $letters[[string](Get-Prop $g 'signature')]; $letter++
         $versions = @($members | ForEach-Object { "v$(Get-Prop $_ 'module.fileVersion') $(Get-Prop $_ 'build.channel')$(if (Get-Prop $_ 'build.brand') { " ($(Get-Prop $_ 'build.brand'))" })" } | Select-Object -Unique)
         & $add "**$name. $(Get-Prop $rep 'classification.title')** - $($members.Count) dump(s), $($versions -join ', ')"
         & $add ''

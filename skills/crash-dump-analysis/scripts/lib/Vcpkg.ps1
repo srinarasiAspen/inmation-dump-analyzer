@@ -4,8 +4,10 @@ function ConvertFrom-VcpkgSourcePath([string]$SourceFile) {
     if (-not $SourceFile) { return $null }
     if ($SourceFile -match '[\\/]buildtrees[\\/](?<port>[^\\/]+)[\\/]src[\\/](?<dir>[^\\/]+?)\.clean[\\/](?<rel>.+)$') {
         $dir = $Matches['dir']; $port = $Matches['port']; $rel = $Matches['rel'] -replace '\\', '/'
-        $version = if ($dir -match '^(?<v>.+)-(?<h>[0-9a-f]{10})$') { $Matches['v'] } else { $dir }
-        return [pscustomobject]@{ port = $port; sourceDir = $dir; version = $version; relPath = $rel }
+        $prefix = if ($dir -match '^(?<v>.+)-(?<h>[0-9a-f]{10})$') { $Matches['v'] } else { $dir }
+        # vcpkg shortens the source folder name ('gacy-1.0.7' for legacy-1.0.7, 'ost-1.90.0' for boost-1.90.0).
+        $version = if ($prefix -match '(?<v>v?\d+(?:\.\d+)+(?:[-.][0-9A-Za-z]+)*)$') { $Matches['v'] } else { $prefix }
+        return [pscustomobject]@{ port = $port; sourceDir = $dir; dirPrefix = $prefix; version = $version; relPath = $rel }
     }
     if ($SourceFile -match '[\\/]vcpkg_installed[\\/][^\\/]+[\\/](?:[^\\/]+[\\/])?include[\\/](?<rel>.+)$') {
         return [pscustomobject]@{ port = $null; sourceDir = $null; version = $null; relPath = 'include/' + ($Matches['rel'] -replace '\\', '/') }
@@ -64,7 +66,7 @@ function Find-LocalPortSource($Config, [string]$Repo, $ThirdParty) {
     $rel = $ThirdParty.relPath -replace '/', '\'
     $exact = Join-Path (Join-Path $srcRoot "$($ThirdParty.sourceDir).clean") $rel
     if (Test-Path -LiteralPath $exact) { return [pscustomobject]@{ path = $exact; exact = $true } }
-    $same = Get-ChildItem -LiteralPath $srcRoot -Directory -Filter "$($ThirdParty.version)-*.clean" -ErrorAction SilentlyContinue |
+    $same = Get-ChildItem -LiteralPath $srcRoot -Directory -Filter "$($ThirdParty.dirPrefix)-*.clean" -ErrorAction SilentlyContinue |
         ForEach-Object { Join-Path $_.FullName $rel } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if ($same) { return [pscustomobject]@{ path = $same; exact = $false } }
     return $null

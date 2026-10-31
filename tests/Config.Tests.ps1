@@ -54,6 +54,12 @@ Describe 'vcpkg source paths' {
         Assert-Equal '1.24.4' $tp.version
         Assert-Equal 'src/libmongoc/src/mongoc/mongoc-cursor.c' $tp.relPath
     }
+    It 'takes the version from shortened source folder names' {
+        $tp = ConvertFrom-VcpkgSourcePath 'E:\ws\vcpkg\buildtrees\mongo-cxx-driver-legacy10\src\gacy-1.0.7-9300c7d0ac.clean\src\mongo\bson\bsonobj.cpp'
+        Assert-Equal '1.0.7' $tp.version
+        Assert-Equal 'gacy-1.0.7' $tp.dirPrefix
+        Assert-Equal 'efb1cc9977' (ConvertFrom-VcpkgSourcePath 'E:\ws\vcpkg\buildtrees\opcua-ansic\src\efb1cc9977-a43567395d.clean\Stack\x.c').version
+    }
     It 'maps vcpkg_installed headers without a port' {
         $tp = ConvertFrom-VcpkgSourcePath 'E:\ws\vcpkg_installed\x64-windows-static\include\boost\asio\detail\impl\win_iocp_io_context.hpp'
         Assert-Null $tp.port
