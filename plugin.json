@@ -1,0 +1,21 @@
+{
+  "name": "inmation-crash-dump-analyzer",
+  "description": "Crash dump analysis for the inmation / OT Data Fabric server: the crash-dump-analyzer agent and the crash-dump-analysis skill with scripts that summarize Windows crash dumps (cdb, verified symbols, Lua / Web API context, C++ exception decoding), search TFS for existing bugs, and collect code evidence for the root cause. Works from any workspace; uses the inmation server repository when it is the workspace.",
+  "version": "0.9.0",
+  "author": {
+    "name": "AspenTech inmation"
+  },
+  "keywords": [
+    "crash dump",
+    "minidump",
+    "cdb",
+    "inmation",
+    "root cause"
+  ],
+  "agents": [
+    "./agents"
+  ],
+  "skills": [
+    "./skills/crash-dump-analysis"
+  ]
+}
