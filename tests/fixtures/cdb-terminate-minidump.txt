@@ -1,0 +1,31 @@
+<<<SECTION:stack>>>
+ # Child-SP          RetAddr               Call Site
+00 00000052`e9dfda60 00007ff6`00000000     inmation!abort+0x35 [minkernel\crts\ucrt\src\appcrt\startup\abort.cpp @ 77]
+01 00000052`e9dfda68 00000052`00000003     0x00007ff6`00000000
+02 00000052`e9dfda70 00000052`00000003     0x00000052`00000003
+03 00000052`e9dfda78 00000052`e9dfdc00     0x00000052`00000003
+04 00000052`e9dfda80 00000052`e9dfed20     0x00000052`e9dfdc00
+05 00000052`e9dfda88 00007ff6`e77e40ed     0x00000052`e9dfed20
+06 00000052`e9dfda90 00000052`e9dfe6f0     inmation!terminate+0x29 [minkernel\crts\ucrt\src\appcrt\misc\terminate.cpp @ 58]
+07 00000052`e9dfda98 00000000`ffffffff     0x00000052`e9dfe6f0
+08 00000052`e9dfdaa0 00000000`ffffffff     0xffffffff
+09 00000052`e9dfdaa8 00007ff6`e77ca88a     0xffffffff
+0a 00000052`e9dfdab0 00000052`e9dfded0     inmation!__CxxFrameHandler4+0xb2 [D:\a\_work\1\s\src\vctools\crt\vcruntime\src\eh\risctrnsctrl.cpp @ 306]
+0b 00000052`e9dfdab8 00007ff6`e77cd2cc     0x00000052`e9dfded0
+0c 00000052`e9dfdac0 00000052`e9dfe6f0     inmation!FindHandler<__FrameHandler4>+0x530 [D:\a\_work\1\s\src\vctools\crt\vcruntime\src\eh\frame.cpp @ 739]
+0d 00000052`e9dfdac8 00000052`e9dfdbc0     0x00000052`e9dfe6f0
+0e 00000052`e9dfdad0 00000052`e9dfded0     0x00000052`e9dfdbc0
+0f 00000052`e9dfdad8 00000052`e9dfed20     0x00000052`e9dfded0
+10 00000052`e9dfdae0 00000000`00000000     0x00000052`e9dfed20
+<<<SECTION:locals>>>
+00 00000052`e9dfda60 00007ff6`00000000     inmation!abort+0x35 [minkernel\crts\ucrt\src\appcrt\startup\abort.cpp @ 77]
+<unavailable>     <function> * sigabrt_action = <value unavailable>
+01 00000052`e9dfda68 00000052`00000003     0x00007ff6`00000000
+Unable to enumerate locals, Win32 error 0n318
+Private symbols (symbols.pri) are required for locals.
+<<<SECTION:modules>>>
+start             end                 module name
+00007ff6`e5b70000 00007ff6`e8efb000   inmation T (private pdb symbols)  c:\users\me\appdata\local\inmation-crash-analysis\symbols\inmation.pdb\ea4ae67976a5457cafea3711ab45b4ae1\inmation.pdb
+    Loaded symbol image file: inmation.exe
+    File version:     1.113.0.32906
+<<<SECTION:end>>>

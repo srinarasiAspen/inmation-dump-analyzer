@@ -156,7 +156,7 @@ foreach ($dumpFile in $dumpFiles) {
     $errors = @()
     $copies = if ($dumpCopies.ContainsKey($dumpFile)) { @($dumpCopies[$dumpFile]) } else { @() }
     $sha = if ($script:sha256Cache.ContainsKey($dumpFile.ToLowerInvariant())) { $script:sha256Cache[$dumpFile.ToLowerInvariant()] } else { $null }
-    $entry = [ordered]@{ dump = [ordered]@{ path = $dumpFile; archive = $(if ($dumpOrigin.ContainsKey($dumpFile)) { $dumpOrigin[$dumpFile] } else { $null }); sha256 = $sha; copies = $copies; sizeBytes = $null; crashTimeUtc = $null; processStartUtc = $null; uptime = $null; uptimeSeconds = $null; processId = $null; architecture = $null; wow64 = $null }; module = $null; exception = $null; assertion = $null; symbols = $null; blocked = $null; build = $null; compare = $null; analyze = $null; signature = $null; crashStack = @(); rawStack = @(); thirdParty = @(); luaStack = @(); luaLibraries = @(); scriptContext = @(); registers = $null; disassembly = $null; localsTop = $null; sourceHistory = @(); files = $null; errors = $null }
+    $entry = [ordered]@{ dump = [ordered]@{ path = $dumpFile; archive = $(if ($dumpOrigin.ContainsKey($dumpFile)) { $dumpOrigin[$dumpFile] } else { $null }); sha256 = $sha; copies = $copies; sizeBytes = $null; crashTimeUtc = $null; processStartUtc = $null; uptime = $null; uptimeSeconds = $null; processId = $null; architecture = $null; wow64 = $null }; module = $null; exception = $null; assertion = $null; symbols = $null; blocked = $null; build = $null; compare = $null; analyze = $null; signature = $null; signatureFamily = $null; crashStack = @(); rawStack = @(); thirdParty = @(); luaStack = @(); luaLibraries = @(); scriptContext = @(); registers = $null; disassembly = $null; localsTop = $null; sourceHistory = @(); files = $null; errors = $null }
 
     try {
         $info = Read-MinidumpInfo $dumpFile
@@ -386,15 +386,9 @@ foreach ($dumpFile in $dumpFiles) {
         $entry.crashStack = $frames
         $localsByFrame = Split-LocalsByFrame $locals
         $entry.assertion = Get-AssertionInfo $frames $localsByFrame $info.Exception
-        # Signature: skip frames that only report the failure (abort, assert handlers, raise, terminate, ...).
-        $top = $frames | Where-Object { -not (Test-NoiseFrame $_) } | Select-Object -First 1
-        $noApplicationFrame = -not $top
-        if (-not $top) { $top = $frames | Select-Object -First 1 }
-        $firstOwn = if (-not $top) { $null } else { $frames | Where-Object { $_.index -ge $top.index -and $ownModules -contains $_.module -and -not $_.thirdParty -and $_.sourceFile -notmatch '[\\/](vcpkg|minkernel|vctools)[\\/]' } | Select-Object -First 1 }
-        $signature = if ($top) { if ($firstOwn -and $firstOwn -ne $top) { "$($top.callSite) <- $($firstOwn.callSite)" } else { $top.callSite } } else { $null }
-        if ($noApplicationFrame -and $signature) { $signature = "$signature [no application frame unwound]" }
-        if ($entry.assertion -and $entry.assertion.expression) { $signature = "assert '$($entry.assertion.expression)' in $signature" }
-        elseif ($entry.assertion) { $signature = "$($entry.assertion.function) in $signature" }
+        $sig = Get-CrashSignature $frames $entry.assertion $ownModules
+        $signature = $sig.Signature
+        $entry.signatureFamily = $sig.Family
         if (-not $symbolsTrusted) {
             # Raw identity only: same binary (PDB GUID) and same faulting RVA. Never merged with symbolized signatures.
             $entry.rawStack = @(Get-RawStack $frames $(if ($info.Exception) { $info.Exception.address } else { $null }) $info.Modules)
@@ -402,6 +396,7 @@ foreach ($dumpFile in $dumpFiles) {
             $rawTop = @($entry.rawStack | Where-Object { $_.address }) | Select-Object -First 1
             $excCode = if ($info.Exception) { $info.Exception.code } else { 'no exception' }
             $signature = "[unverified symbols] $excCode at $(if ($rawTop) { $rawTop.address } else { 'unknown address' }) (v$($module.FileVersion), PDB $($module.PdbGuid))"
+            $entry.signatureFamily = $signature
         }
         $entry.signature = $signature
 
@@ -515,8 +510,8 @@ foreach ($dumpFile in $dumpFiles) {
     foreach ($e in $errors) { Write-Host "  ! $e" }
 }
 
-$groups = @($results | Group-Object { if ($_.signature) { $_.signature } else { '<unknown>' } } | ForEach-Object {
-        [ordered]@{ signature = $_.Name; count = $_.Count; blocked = [bool]($_.Group | Where-Object { $_.blocked }); dumps = @($_.Group | ForEach-Object { $_.dump.path }) }
+$groups = @($results | Group-Object { if ($_.signatureFamily) { $_.signatureFamily } elseif ($_.signature) { $_.signature } else { '<unknown>' } } | ForEach-Object {
+        [ordered]@{ signature = $_.Name; count = $_.Count; blocked = [bool]($_.Group | Where-Object { $_.blocked }); exactSignatures = @($_.Group | ForEach-Object { $_.signature } | Select-Object -Unique); versions = @($_.Group | Where-Object { $_.module } | ForEach-Object { $_.module.fileVersion } | Select-Object -Unique); dumps = @($_.Group | ForEach-Object { $_.dump.path }) }
     })
 
 function Test-Writable([string]$Directory) {
@@ -616,6 +611,10 @@ foreach ($group in $groups) {
     [void]$digest.AppendLine("")
     [void]$digest.AppendLine("## Signature: ``$($group.signature)`` ($($group.count) dump(s))")
     [void]$digest.AppendLine("")
+    if (@($group.exactSignatures).Count -gt 1 -or @($group.versions).Count -gt 1) {
+        [void]$digest.AppendLine("Same crashing functions in $(@($group.versions).Count) file version(s) ($(@($group.versions) -join ', ')); exact signatures: $(@($group.exactSignatures | ForEach-Object { "``$_``" }) -join '; ')")
+        [void]$digest.AppendLine("")
+    }
     [void]$digest.AppendLine("Representative dump: $($r.dump.path)")
     [void]$digest.AppendLine("")
     if ($r.blocked) {

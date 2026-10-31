@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Searches TFS / Azure DevOps Server for existing work items that match a crash analyzed by Invoke-CrashDumpAnalysis.ps1.
 
@@ -60,7 +60,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-foreach ($lib in 'Common', 'Frames') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
+foreach ($lib in 'Common', 'Frames', 'SearchTerms') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 # 'powershell -File' passes '-Id 1,2' / '-Term a,b' as one string; split on commas outside <...> template arguments.
 function Split-ListArgument([string[]]$Values) {
@@ -181,66 +181,25 @@ function Get-WorkItems([int[]]$Ids) {
 
 #endregion
 
-#region search terms
-
-$script:luaVmRegex = '^(luaV_\w+|luaD_\w+|luaG_\w+|luaT_\w+|luaH_\w+|luaC_\w+|luaE_\w+|luaF_\w+|luaO_\w+|lua_pcallk|lua_callk|lua_resume|lua_error|luaL_error|luaB_pcall|luaB_xpcall|f_call|resume)$'
-$script:osModuleRegex = '^(ntdll|KERNELBASE|kernel32|ucrtbase|vcruntime\d*|msvcp\d*|wow64\w*|combase|rpcrt4|ws2_32|mswsock)$'
-$script:keywordRegex = '^(const|static_cast|reinterpret_cast|nullptr|NULL|sizeof|return|true|false|unsigned|signed|struct|class|this)$'
-
-function Get-SearchTermName([string]$Function) {
-    $name = $Function
-    while ($name -match '<[^<>]*>') { $name = $name -replace '<[^<>]*>', '' }
-    $parts = @($name -split '::' | Where-Object { $_ })
-    if ($parts.Count -eq 0) { return $null }
-    $method = $parts[-1]
-    if (-not $method -or $method -match '^operator' -or $method -match 'lambda|`|\$|<|>|\s') { return $null }
-    $core = $method.TrimStart('_')
-    if ($core.Length -ge 10 -or $core.Contains('_')) { return $method }
-    if ($parts.Count -ge 2 -and $parts[-2] -notmatch '`|\s|anonymous') { return "$($parts[-2])::$method" }
-    if ($core.Length -ge 6) { return $method }
-    return $null
-}
-
-function Get-CrashTerms($Dump) {
-    $terms = New-Object Collections.Generic.List[object]
-    $seen = @{}
-    $assertion = Get-Cfg $Dump 'assertion' $null
-    $expression = Get-Cfg $assertion 'expression' $null
-    if ($expression) {
-        foreach ($m in [regex]::Matches($expression, '[A-Za-z_][A-Za-z0-9_]{5,}')) {
-            $t = $m.Value
-            if ($t -match $script:keywordRegex -or $seen.ContainsKey($t.ToLowerInvariant())) { continue }
-            $seen[$t.ToLowerInvariant()] = $true
-            $terms.Add([pscustomobject]@{ Text = $t; Kind = 'asserted expression'; Weight = 3.0; Frame = $null })
-        }
-    }
-    $rank = 0
-    foreach ($frame in @(Get-Cfg $Dump 'crashStack' @() | Sort-Object { [int]$_.index })) {
-        if ($rank -ge $maxFrameTerms) { break }
-        $function = [string](Get-Cfg $frame 'function' '')
-        $module = [string](Get-Cfg $frame 'module' '')
-        if (-not $function -or $function -match '^0x[0-9a-f]+$' -or $function -ieq $module -or $function -match '\+0x[0-9a-f]+$') { continue }
-        if ($function -match $script:noiseFunctionRegex -or $function -match $script:ehRuntimeRegex -or $function -match $script:luaVmRegex -or $module -match $script:osModuleRegex) { continue }
-        if ($function -match '^(std|Concurrency|boost)::') { continue }
-        $t = Get-SearchTermName $function
-        if (-not $t -or $seen.ContainsKey($t.ToLowerInvariant())) { continue }
-        $seen[$t.ToLowerInvariant()] = $true
-        $weight = if ($rank -eq 0) { 3.0 } elseif ($rank -le 2) { 2.0 } else { 1.0 }
-        $terms.Add([pscustomobject]@{ Text = $t; Kind = "frame $([int]$frame.index) ($module)"; Weight = $weight; Frame = [int]$frame.index })
-        $rank++
-    }
-    return $terms.ToArray()
-}
+#region signature groups
 
 function Get-SignatureGroups($Summary) {
     $groups = [ordered]@{}
     foreach ($d in @(Get-Cfg $Summary 'dumps' @())) {
-        $sig = [string](Get-Cfg $d 'signature' '')
+        $sig = [string](Get-Cfg $d 'signatureFamily' '')
+        if (-not $sig) { $sig = [string](Get-Cfg $d 'signature' '') }
         if (-not $sig) { $sig = '(no signature)' }
         if (-not $groups.Contains($sig)) { $groups[$sig] = New-Object Collections.Generic.List[object] }
         $groups[$sig].Add($d)
     }
     return $groups
+}
+
+# -Signature selects a group by a substring of its family or of the exact signature of one of its dumps.
+function Test-SignatureSelected([string]$Family, $Dumps) {
+    if (-not $Signature) { return $true }
+    if ($Family.Contains($Signature)) { return $true }
+    return [bool](@($Dumps | Where-Object { ([string](Get-Cfg $_ 'signature' '')).Contains($Signature) }).Count)
 }
 
 #endregion
@@ -280,7 +239,7 @@ function Format-Relations($Item) {
 function Get-MatchEvidence($Dump, [string]$Text) {
     $rows = @()
     $lower = $Text.ToLowerInvariant()
-    foreach ($t in @(Get-CrashTerms $Dump)) {
+    foreach ($t in @(Get-CrashTerms $Dump $maxFrameTerms)) {
         $needle = $t.Text.ToLowerInvariant()
         $plain = ($t.Text -split '::')[-1].ToLowerInvariant()
         $found = $lower.Contains($needle) -or ($plain.Length -ge 6 -and $lower.Contains($plain))
@@ -354,7 +313,7 @@ try {
                 [void]$md.AppendLine(""); [void]$md.AppendLine("## Match evidence (crash facts found in the work item text)")
                 $unmatched = @()
                 foreach ($sig in $groups.Keys) {
-                    if ($Signature -and -not $sig.Contains($Signature)) { continue }
+                    if (-not (Test-SignatureSelected $sig $groups[$sig].ToArray())) { continue }
                     $rep = $groups[$sig].ToArray() | Where-Object { -not (Get-Cfg $_ 'blocked' $null) } | Select-Object -First 1
                     if (-not $rep) { continue }
                     $rows = @(Get-MatchEvidence $rep $allText)
@@ -380,11 +339,11 @@ try {
     if ($summary) {
         $groups = Get-SignatureGroups $summary
         foreach ($sig in $groups.Keys) {
-            if ($Signature -and -not $sig.Contains($Signature)) { continue }
+            if (-not (Test-SignatureSelected $sig $groups[$sig].ToArray())) { continue }
             $dumps = $groups[$sig].ToArray()
             $rep = $dumps | Where-Object { -not (Get-Cfg $_ 'blocked' $null) } | Select-Object -First 1
             if (-not $rep) { Write-Host "Skipping blocked signature (unverified symbols): $sig"; $searches += [pscustomobject]@{ Signature = $sig; Dumps = $dumps.Count; Blocked = $true; Terms = @() }; continue }
-            $terms = @(Get-CrashTerms $rep)
+            $terms = @(Get-CrashTerms $rep $maxFrameTerms)
             if ($terms.Count -eq 0 -and -not $Term) { Write-Host "NO_DISTINCTIVE_TERMS=$sig" }
             foreach ($t in @($Term)) { if ($t) { $terms += [pscustomobject]@{ Text = $t; Kind = 'user term'; Weight = 2.0; Frame = $null } } }
             $searches += [pscustomobject]@{ Signature = $sig; Dumps = $dumps.Count; Blocked = $false; Terms = $terms }
