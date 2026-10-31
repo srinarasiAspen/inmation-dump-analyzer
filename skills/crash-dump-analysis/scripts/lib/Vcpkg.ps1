@@ -71,3 +71,27 @@ function Find-LocalPortSource($Config, [string]$Repo, $ThirdParty) {
     if ($same) { return [pscustomobject]@{ path = $same; exact = $false } }
     return $null
 }
+
+# Third-party frames (vcpkg buildtrees / vcpkg_installed headers): marks frame.thirdParty and returns per port the version
+# in the build path, the port definition at the build commit and on the compare ref, and local sources.
+function Get-ThirdPartyPorts($Frames, $Config, [string]$Repo, [string]$BuildCommit, [string]$CompareCommit) {
+    $portMap = [ordered]@{}
+    foreach ($frame in @($Frames | Where-Object { $_ })) {
+        $tp = ConvertFrom-VcpkgSourcePath $frame.sourceFile
+        if (-not $tp) { continue }
+        $frame.thirdParty = $tp
+        if (-not $tp.port) { continue }
+        if (-not $portMap.Contains($tp.port)) {
+            $portMap[$tp.port] = [ordered]@{
+                port = $tp.port; versionInBuildPath = $tp.version; sourceDirInBuild = $tp.sourceDir; frames = @()
+                atBuildCommit = Get-PortInfo $Config $Repo $BuildCommit $tp.port
+                atCompareRef = Get-PortInfo $Config $Repo $CompareCommit $tp.port
+                localSource = @()
+            }
+        }
+        $portMap[$tp.port].frames += $frame.index
+        $local = Find-LocalPortSource $Config $Repo $tp
+        if ($local -and $portMap[$tp.port].localSource.Count -lt 5) { $portMap[$tp.port].localSource += [ordered]@{ frame = $frame.index; path = $local.path; exactBuildTree = $local.exact } }
+    }
+    return @($portMap.Values)
+}

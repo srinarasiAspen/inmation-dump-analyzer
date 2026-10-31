@@ -1,0 +1,15 @@
+#0  0x00007f3a1b4979dc in __pthread_kill_implementation () from /sysroot/lib64/libc.so.6
+#1  0x00007f3a1b44a8f6 in raise () from /sysroot/lib64/libc.so.6
+#2  0x00007f3a1b4344b3 in abort () from /sysroot/lib64/libc.so.6
+#3  0x00007f3a1b6a1a3d in __gnu_cxx::__verbose_terminate_handler() [clone .cold] () from /sysroot/lib64/libstdc++.so.6
+#4  0x00007f3a1b6b1f8c in __cxxabiv1::__terminate(void (*)()) () from /sysroot/lib64/libstdc++.so.6
+#5  0x00007f3a1b6b1ff7 in std::terminate() () from /sysroot/lib64/libstdc++.so.6
+#6  0x00007f3a1b6b2258 in __cxa_throw () from /sysroot/lib64/libstdc++.so.6
+#7  0x00007f3a1b6a46c6 in std::__throw_system_error(int) () from /sysroot/lib64/libstdc++.so.6
+#8  0x00005ff6c3a1b2c4 in std::mutex::lock (this=0x5ff6c7adcd70) at /usr/include/c++/12/bits/std_mutex.h:107
+#9  std::lock_guard<std::mutex>::lock_guard (__m=..., this=<synthetic pointer>) at /usr/include/c++/12/bits/std_mutex.h:229
+#10 inmation::core::Cache::get (this=0x5ff6c7adcd00, key=42) at /root/inmation/server/inmation/src/core/Cache.cpp:118
+#11 0x00005ff6c3a6a126 in inmation::core::Worker::run (this=0x5ff6c7ade000) at /root/inmation/server/inmation/src/core/Worker.cpp:77
+#12 0x00007f3a1b6e0253 in execute_native_thread_routine () from /sysroot/lib64/libstdc++.so.6
+#13 0x00007f3a1b4956ea in start_thread () from /sysroot/lib64/libc.so.6
+#14 0x00007f3a1b51958c in clone3 () from /sysroot/lib64/libc.so.6

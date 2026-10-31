@@ -18,7 +18,7 @@ function Expand-DumpArchives([string[]]$ZipPaths, [string]$ExtractRoot, [string[
             foreach ($pdbEntry in @($zip.Entries | Where-Object { $_.Name -match '\.pdb$' })) {
                 $symbols += [pscustomobject]@{ Archive = $zipPath; Entry = $pdbEntry.FullName; Name = $pdbEntry.Name; SizeBytes = $pdbEntry.Length }
             }
-            $entries = @($zip.Entries | Where-Object { $_.Name -match '\.dmp$' })
+            $entries = @($zip.Entries | Where-Object { $_.Name -match '\.(dmp|core)$' })
             if ($entries.Count -eq 0) {
                 if (-not ($symbols | Where-Object { $_.Archive -eq $zipPath })) { $empty += $zipPath }
                 continue

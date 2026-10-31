@@ -50,14 +50,15 @@ param(
     [switch]$Recurse,
     [switch]$SkipFetch,
     [switch]$NoSource,
-    [string]$ReportDir
+    [string]$ReportDir,
+    [string]$SysrootPath
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-foreach ($lib in 'Common', 'Minidump', 'BuildLookup', 'Cdb', 'Source', 'Frames', 'Vcpkg', 'Lua', 'Archives', 'CppException', 'Classification', 'Report') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
+foreach ($lib in 'Common', 'Minidump', 'BuildLookup', 'Cdb', 'Source', 'Frames', 'Vcpkg', 'Lua', 'Archives', 'CppException', 'Classification', 'Report', 'LinuxCore') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 $configInfo = Read-AnalyzerConfig $ConfigPath $PSScriptRoot
 $config = $configInfo.Config
@@ -82,7 +83,7 @@ $emptyArchives = @()
 $bundledPdbs = @()
 $extractRootPath = Expand-PathValue (Get-Cfg $config 'extractRoot' "$env:LOCALAPPDATA\inmation-crash-analysis\extracted")
 if (Test-Path -LiteralPath $DumpPath -PathType Container) {
-    $dumpFiles = @(Get-ChildItem -LiteralPath $DumpPath -Filter '*.dmp' -File -Recurse:$Recurse | Sort-Object FullName | ForEach-Object { $_.FullName })
+    $dumpFiles = @(Get-ChildItem -LiteralPath $DumpPath -File -Recurse:$Recurse | Where-Object { $_.Name -match '\.(dmp|core)$|^core(\.\d+)?$' } | Sort-Object FullName | ForEach-Object { $_.FullName })
     $zipFiles = @(Get-ChildItem -LiteralPath $DumpPath -Filter '*.zip' -File -Recurse:$Recurse | Sort-Object FullName | ForEach-Object { $_.FullName })
     if ($zipFiles.Count -gt 0) {
         $expansion = Expand-DumpArchives $zipFiles $extractRootPath $dumpFiles
@@ -136,7 +137,10 @@ $dumpFiles = @($dumpFiles | Where-Object { -not $duplicateOf.ContainsKey($_) })
 $runDir = if ($OutDir) { $OutDir } else { Join-Path (Expand-PathValue (Get-Cfg $config 'workRoot' "$env:LOCALAPPDATA\inmation-crash-analysis\runs")) (Get-Date -Format 'yyyyMMdd-HHmmss') }
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
-$cdb = Find-Cdb $config
+# cdb is needed for Windows dumps only; Linux cores use gdb in WSL.
+$cdb = $null
+$cdbError = $null
+try { $cdb = Find-Cdb $config } catch { $cdbError = $_.Exception.Message }
 $fetchStatus = if ($repo) { 'skipped' } else { 'no source repository' }
 if ($repo -and -not $SkipFetch -and (Get-Cfg $gitConfig 'fetch' $true)) {
     $env:GIT_TERMINAL_PROMPT = '0'
@@ -158,11 +162,31 @@ foreach ($dumpFile in $dumpFiles) {
     $dumpOut = Join-Path $runDir $outName
     New-Item -ItemType Directory -Force -Path $dumpOut | Out-Null
     $errors = @()
-    $copies = if ($dumpCopies.ContainsKey($dumpFile)) { @($dumpCopies[$dumpFile]) } else { @() }
+    $copies = @(if ($dumpCopies.ContainsKey($dumpFile)) { $dumpCopies[$dumpFile] })
     $sha = if ($script:sha256Cache.ContainsKey($dumpFile.ToLowerInvariant())) { $script:sha256Cache[$dumpFile.ToLowerInvariant()] } else { $null }
     $entry = [ordered]@{ dump = [ordered]@{ path = $dumpFile; archive = $(if ($dumpOrigin.ContainsKey($dumpFile)) { $dumpOrigin[$dumpFile] } else { $null }); sha256 = $sha; copies = $copies; sizeBytes = $null; crashTimeUtc = $null; processStartUtc = $null; uptime = $null; uptimeSeconds = $null; processId = $null; architecture = $null; wow64 = $null }; module = $null; exception = $null; assertion = $null; symbols = $null; blocked = $null; build = $null; compare = $null; analyze = $null; signature = $null; signatureFamily = $null; signatureInfo = $null; classification = $null; cppException = $null; crashStack = @(); rawStack = @(); thirdParty = @(); luaStack = @(); luaLibraries = @(); scriptContext = @(); registers = $null; disassembly = $null; localsTop = $null; sourceHistory = @(); files = $null; errors = $null }
 
+    $isLinuxCore = $false
+    try { $isLinuxCore = Test-ElfCoreFile $dumpFile } catch { }
+    if ($isLinuxCore) {
+        $entry.dump.platform = 'linux'
+        try {
+            $linuxDirs = @((Split-Path $dumpFile -Parent))
+            if ($dumpOrigin.ContainsKey($dumpFile)) { $linuxDirs += (Split-Path $dumpOrigin[$dumpFile] -Parent) }
+            $entry = Invoke-LinuxCoreDump ([pscustomobject]@{ Config = $config; Repo = $repo; OwnModules = $ownModules; DumpFile = $dumpFile; DumpOut = $dumpOut; Entry = $entry; PdbPath = $PdbPath; SysrootPath = $SysrootPath; DumpDirs = $linuxDirs; FetchStatus = $fetchStatus })
+            $errors += @($entry.errors)
+        }
+        catch { $errors += "Fatal: $($_.Exception.Message) at $([IO.Path]::GetFileName($_.InvocationInfo.ScriptName)):$($_.InvocationInfo.ScriptLineNumber)" }
+        $entry.errors = $errors
+        $results += [pscustomobject]$entry
+        Write-Host ("  linux core: version={0} signature={1} errors={2}" -f $(if ($entry.module) { $entry.module.fileVersion } else { '?' }), $entry.signature, $errors.Count)
+        if ($entry.blocked) { Write-Host "  BLOCKED: $($entry.blocked.reason)" }
+        foreach ($e in $errors) { Write-Host "  ! $e" }
+        continue
+    }
+
     try {
+        if (-not $cdb) { throw $cdbError }
         $info = Read-MinidumpInfo $dumpFile
         $module = $info.Modules | Where-Object { $binaryMap.ContainsKey($_.Name.ToLowerInvariant()) } | Select-Object -First 1
         if (-not $module) { $module = $info.Modules | Select-Object -First 1; $errors += "No configured binary ($($binaryMap.Keys -join ', ')) in dump; main module is $($module.Name)." }
@@ -349,43 +373,8 @@ foreach ($dumpFile in $dumpFiles) {
 
         $frames = @(ConvertFrom-CdbStack (Get-Section $sections 'stack'))
         if ($frames.Count -eq 0) { $errors += 'Could not parse the crashing stack; read cdb.log.' }
-        foreach ($frame in $frames) {
-            if ($build.commit -and $frame.sourceFile -and $ownModules -contains $frame.module) {
-                $frame.repoPath = Convert-ToRepoPath $repo $build.commit $frame.sourceFile $config
-                if ($frame.repoPath -and $frame.sourceLine) {
-                    $fileLines = Get-GitFileLines $repo $build.commit $frame.repoPath
-                    if ($fileLines) {
-                        $start = [Math]::Max(1, $frame.sourceLine - 4); $end = [Math]::Min($fileLines.Count, $frame.sourceLine + 4)
-                        $frame.buildSnippet = (@($start..$end | ForEach-Object { '{0}{1,6}: {2}' -f $(if ($_ -eq $frame.sourceLine) { '>' } else { ' ' }), $_, $fileLines[$_ - 1] })) -join "`n"
-                        $short = Get-ShortFunctionName $frame.function
-                        if ($short) {
-                            $window = $fileLines[0..([Math]::Min($fileLines.Count, $frame.sourceLine) - 1)]
-                            $frame.functionFoundAtBuildCommit = [bool](@($window | Where-Object { $_.Contains("$short(") }).Count)
-                        }
-                    }
-                }
-            }
-        }
-        # Third-party frames (vcpkg buildtrees / vcpkg_installed headers): port, version and patches at build and compare ref.
-        $portMap = [ordered]@{}
-        foreach ($frame in @($frames | Where-Object { $symbolsTrusted })) {
-            $tp = ConvertFrom-VcpkgSourcePath $frame.sourceFile
-            if (-not $tp) { continue }
-            $frame.thirdParty = $tp
-            if (-not $tp.port) { continue }
-            if (-not $portMap.Contains($tp.port)) {
-                $portMap[$tp.port] = [ordered]@{
-                    port = $tp.port; versionInBuildPath = $tp.version; sourceDirInBuild = $tp.sourceDir; frames = @()
-                    atBuildCommit = Get-PortInfo $config $repo $build.commit $tp.port
-                    atCompareRef = Get-PortInfo $config $repo $dumpCompareCommit $tp.port
-                    localSource = @()
-                }
-            }
-            $portMap[$tp.port].frames += $frame.index
-            $local = Find-LocalPortSource $config $repo $tp
-            if ($local -and $portMap[$tp.port].localSource.Count -lt 5) { $portMap[$tp.port].localSource += [ordered]@{ frame = $frame.index; path = $local.path; exactBuildTree = $local.exact } }
-        }
-        $entry.thirdParty = @($portMap.Values)
+        Add-SourceSnippets $frames $repo $build.commit $config $ownModules
+        $entry.thirdParty = @(Get-ThirdPartyPorts $(if ($symbolsTrusted) { $frames } else { @() }) $config $repo $build.commit $dumpCompareCommit)
 
         $entry.crashStack = $frames
         $localsByFrame = Split-LocalsByFrame $locals
@@ -443,9 +432,10 @@ foreach ($dumpFile in $dumpFiles) {
         if ($symbolsTrusted -and ($hasLua -or $scriptFrames.Count -gt 0)) {
             # The Lua version decides the struct layout; without the repository, take it from the lua port's build path.
             $luaVersion = $null
-            if ($portMap.Contains('lua')) {
-                if ($portMap['lua'].atBuildCommit) { $luaVersion = $portMap['lua'].atBuildCommit.version }
-                if (-not $luaVersion -and $portMap['lua'].versionInBuildPath) { $luaVersion = $portMap['lua'].versionInBuildPath -replace '^v', '' }
+            $luaInStack = @($entry.thirdParty | Where-Object { $_.port -eq 'lua' }) | Select-Object -First 1
+            if ($luaInStack) {
+                if ($luaInStack.atBuildCommit) { $luaVersion = $luaInStack.atBuildCommit.version }
+                if (-not $luaVersion -and $luaInStack.versionInBuildPath) { $luaVersion = $luaInStack.versionInBuildPath -replace '^v', '' }
             }
             else {
                 $luaPort = Get-PortInfo $config $repo $(if ($build.commit) { $build.commit } else { $dumpCompareCommit }) 'lua'
@@ -511,14 +501,7 @@ foreach ($dumpFile in $dumpFiles) {
             catch { $errors += "Context pass: $($_.Exception.Message)" }
         }
 
-        if ($build.commit -and $dumpCompareCommit) {
-            $histFiles = @($frames | Where-Object { $_.repoPath } | Select-Object -First ([int](Get-Cfg $config 'topFramesForHistory' 6)) | ForEach-Object { $_.repoPath } | Select-Object -Unique)
-            foreach ($rel in $histFiles) {
-                $log = Invoke-Git $repo @('log', '--format=%h%x09%ad%x09%an%x09%s', '--date=short', '-n', '60', "$($build.commit)..$dumpCompareCommit", '--', $rel)
-                $existsNow = (Invoke-Git $repo @('cat-file', '-e', ('{0}:{1}' -f $dumpCompareCommit, $rel))).ExitCode -eq 0
-                $entry.sourceHistory += [ordered]@{ file = $rel; existsInCompareRef = $existsNow; commitsNotInBuild = @($log.Lines | Where-Object { $_ }) }
-            }
-        }
+        $entry.sourceHistory = @(Get-SourceHistory $frames $repo $build.commit $dumpCompareCommit $config)
 
         $threadsFile = Join-Path $dumpOut 'threads.txt'
         Set-Content -LiteralPath $threadsFile -Value (Get-Section $sections 'threads')
@@ -628,7 +611,7 @@ $blockedResults = @($results | Where-Object { $_.blocked })
 if ($blockedResults.Count -gt 0) {
     [void]$digest.AppendLine("- **BLOCKED dumps ($($blockedResults.Count)) - symbols not verified.** Report only their raw exception facts and the required PDB; no function names, signature grouping, build commit, source mapping or root cause. They do not block the other dumps of this run.")
     foreach ($b in $blockedResults) {
-        [void]$digest.AppendLine("  - $([IO.Path]::GetFileName($b.dump.path)) v$($b.module.fileVersion): needs $($b.blocked.requiredPdb) GUID $($b.blocked.pdbGuid) age $($b.blocked.pdbAge) (binary linked $($b.blocked.binaryLinkedUtc), installed at $($b.blocked.installPath)). $($b.blocked.reason)")
+        [void]$digest.AppendLine("  - $([IO.Path]::GetFileName($b.dump.path)) v$($b.module.fileVersion): needs $($b.blocked.requiredPdb) $(Get-BlockedIdentity $b.blocked) (binary linked $($b.blocked.binaryLinkedUtc), installed at $($b.blocked.installPath)). $($b.blocked.reason)")
     }
 }
 [void]$digest.AppendLine("")
@@ -661,7 +644,7 @@ foreach ($group in $groups) {
     [void]$digest.AppendLine("Representative dump: $($r.dump.path)")
     [void]$digest.AppendLine("")
     if ($r.blocked) {
-        [void]$digest.AppendLine("> **BLOCKED - $($r.blocked.reason)** Use only the exception code/address/parameters and the raw module+RVA addresses below. Function names from export symbols are nearest exports, not the crashing function. No build commit, source mapping, fix search or root cause until the matching $($r.blocked.requiredPdb) (GUID $($r.blocked.pdbGuid), age $($r.blocked.pdbAge)) is supplied with -PdbPath. Do not substitute a neighboring build's PDB.")
+        [void]$digest.AppendLine("> **BLOCKED - $($r.blocked.reason)** Use only the exception code/address/parameters and the raw module+RVA addresses below. Function names from export symbols are nearest exports, not the crashing function. No build commit, source mapping, fix search or root cause until the matching $($r.blocked.requiredPdb) ($(Get-BlockedIdentity $r.blocked)) is supplied with -PdbPath. Do not substitute a neighboring build's PDB.")
         [void]$digest.AppendLine("")
     }
     if ($r.exception) {
@@ -900,10 +883,14 @@ foreach ($group in $groups) {
         [void]$digest.AppendLine("")
         [void]$digest.AppendLine("Raw files: cdb log $($r.files.cdbLog); locals $($r.files.locals); frame 0 locals (dx -r2) $($r.files.frame0LocalsDx); all threads $($r.files.threads); !analyze $($r.files.analyze)$(if ($r.files.contextLog) { "; Lua/script context $($r.files.contextLog)" })")
     }
-    if ($r.symbols -and $r.symbols.trusted) {
-        $imageArg = if ($r.symbols.cdbImagePath) { " -i `"$($r.symbols.cdbImagePath)`"" } else { '' }
+    $queryScript = Join-Path $PSScriptRoot 'Invoke-DumpQuery.ps1'
+    if ($r.symbols -and $r.symbols.trusted -and $r.dump.Contains('platform') -and $r.dump.platform -eq 'linux') {
         [void]$digest.AppendLine("")
-        [void]$digest.AppendLine("Further cdb queries: ``& `"$cdb`" -z `"$($r.dump.path)`" -y `"$($r.symbols.cdbSymbolPath)`"$imageArg -lines -c `".ecxr; .frame 0n<N>; dx -r2 <expr>; q`"``. For longer or quoted queries write the commands to a file and pass ``-cf <file>`` instead of ``-c`` (see $(if ($r.files -and $r.files.contextLog) { "$(Split-Path $r.files.contextLog -Parent)\context.cdb.txt" } else { 'context.cdb.txt in the dump folder of the run' }) for an example).")
+        [void]$digest.AppendLine("Further gdb queries (read-only, symbols and sysroot of this run): ``powershell -NoProfile -ExecutionPolicy Bypass -File `"$queryScript`" -SummaryJson `"$summaryPath`" -Dump `"$($r.dump.path)`" -Frame <N> -Command 'info locals; p *this'``.")
+    }
+    elseif ($r.symbols -and $r.symbols.trusted) {
+        [void]$digest.AppendLine("")
+        [void]$digest.AppendLine("Further cdb queries (read-only, verified symbols of this run): ``powershell -NoProfile -ExecutionPolicy Bypass -File `"$queryScript`" -SummaryJson `"$summaryPath`" -Dump `"$($r.dump.path)`" -Frame <N> -Command 'dx -r2 <expr>'``. Several commands: separate with ``;``. See references/manual-cdb.md.")
     }
 }
 $digestPath = Join-Path $runDir 'digest.md'
@@ -921,4 +908,4 @@ if ($searchable.Count -gt 0) {
     if ($repo) { Write-Host "STAGE3_COMMAND=$psExe `"$(Join-Path $PSScriptRoot 'Get-CodeEvidence.ps1')`" -SummaryJson `"$summaryPath`"" }
 }
 foreach ($dir in @($extracted | ForEach-Object { Split-Path $_.DumpPath -Parent } | Select-Object -Unique)) { Write-Host "EXTRACTED_DIR=$dir" }
-foreach ($b in @($results | Where-Object { $_.blocked })) { Write-Host "BLOCKED_DUMP=$($b.dump.path) | needs $($b.blocked.requiredPdb) GUID $($b.blocked.pdbGuid) age $($b.blocked.pdbAge)" }
+foreach ($b in @($results | Where-Object { $_.blocked })) { Write-Host "BLOCKED_DUMP=$($b.dump.path) | $(Get-VersionLabel $b) | needs $($b.blocked.requiredPdb) $(Get-BlockedIdentity $b.blocked)" }

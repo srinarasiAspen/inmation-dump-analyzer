@@ -46,6 +46,36 @@ function Get-CrashClassification($Exception, $Assertion, $Frames, $Signature, $C
         return [pscustomobject]$result
     }
 
+    # Linux signals use the same paths as the matching Windows exceptions.
+    $failFast = $Exception.failFastCode
+    if ($code -like 'SIG*') {
+        if ($Exception.external) {
+            $result.category = 'killed-by-signal'
+            $result.title = "$code sent to the process from outside (no fault)"
+            $senderPid = $null; try { $senderPid = $Exception.senderPid } catch { }
+            $sender = if ($senderPid) { ", sender PID $senderPid$(if ($senderPid -eq 1) { ' = the container init process, which forwards signals from docker stop / docker kill' })" } else { '' }
+            $result.text = "The process received $code from another process (si_code $($Exception.siCode): kill / tgkill$sender), for example docker kill, an orchestrator or a watchdog. It did not fault; the stack shows where the main thread was when the signal arrived."
+            $result.stackRole = 'unknown'
+            $result.hints = @('Find who sent the signal (container runtime, health check, watchdog, operator) and why; check the logs around the crash time.')
+            return [pscustomobject]$result
+        }
+        $glibcCheck = @($Frames | Where-Object { $_.function -match '^(malloc_printerr|__libc_message|__libc_message_impl|__fortify_fail|__stack_chk_fail|__chk_fail)$' } | Select-Object -First 1)
+        $glibcMessage = if ($Assertion -and $Assertion.kind -eq 'glibc fatal error') { [string]$Assertion.expression } else { $null }
+        switch ($code) {
+            'SIGSEGV' { $code = '0xC0000005' }
+            'SIGBUS' { $code = '0xC0000005'; $result.hints += 'SIGBUS: access to a page of a mapped file that no longer exists (file truncated or on a lost volume) or a misaligned access.' }
+            'SIGFPE' { $code = '0xC0000094' }
+            'SIGILL' { $code = '0xC000001D' }
+            'SIGTRAP' { $code = '0x80000003' }
+            'SIGABRT' {
+                $code = '0xC0000409'; $failFast = 7
+                if (($glibcCheck.Count -and $glibcCheck[0].function -match 'stack_chk') -or $glibcMessage -match 'stack smashing') { $failFast = 2 }
+                elseif ($glibcCheck.Count -or $glibcMessage) { $failFast = 50 }
+            }
+        }
+        if ($glibcMessage) { $result.hints += "glibc message: $glibcMessage"; $Assertion = $null }
+    }
+
     $terminate = ($Assertion -and $Assertion.kind -like 'std::terminate*') -or $code -eq '0xE06D7363'
     if ($terminate) {
         $result.category = 'unhandled-cpp-exception'
@@ -72,6 +102,7 @@ function Get-CrashClassification($Exception, $Assertion, $Frames, $Signature, $C
         switch -wildcard ($Assertion.kind) {
             'BSON_ASSERT*' { $result.category = 'failed-assertion'; $result.title = "Failed BSON_ASSERT$expr$inText" }
             'CRT assert*' { $result.category = 'failed-assertion'; $result.title = "Failed assert()$expr$inText" }
+            'assert()*' { $result.category = 'failed-assertion'; $result.title = "Failed assert()$expr$inText" }
             'CRT invalid parameter' { $result.category = 'invalid-parameter'; $result.title = "CRT invalid parameter$inText" }
             'pure virtual call' { $result.category = 'pure-virtual-call'; $result.title = "Pure virtual function call$inText" }
             default { $result.category = 'deliberate-abort'; $result.title = "$($Assertion.kind)$inText" }
@@ -130,13 +161,15 @@ function Get-CrashClassification($Exception, $Assertion, $Frames, $Signature, $C
             }
         }
         '0xC0000409' {
-            $sub = $Exception.failFastCode
+            $sub = $failFast
+            $isSignal = ([string]$Exception.code) -like 'SIG*'
+            $checkName = if ($isSignal) { 'glibc runtime check (malloc_printerr / __libc_message)' } else { $Exception.failFastName }
             switch ($sub) {
-                7 { $result.category = 'deliberate-abort'; $result.title = "abort()$inText"; $result.text = "Deliberate abort (fail-fast subcode 7, FAST_FAIL_FATAL_APP_EXIT)$inText - not a buffer overrun." }
-                { $_ -eq 0 -or $_ -eq 2 } { $result.category = 'stack-buffer-overrun'; $result.title = "Stack buffer overrun (/GS)$inText"; $result.text = "The /GS stack cookie check failed$inText${where}: a fixed-size local buffer of that function was overwritten."; $result.hints += 'Look for fixed-size local arrays written without bounds checks in the function that owns the cookie.' }
+                7 { $result.category = 'deliberate-abort'; $result.title = "abort()$inText"; $result.text = $(if ($isSignal) { "Deliberate abort (SIGABRT raised by abort())$inText." } else { "Deliberate abort (fail-fast subcode 7, FAST_FAIL_FATAL_APP_EXIT)$inText - not a buffer overrun." }) }
+                { $_ -eq 0 -or $_ -eq 2 } { $result.category = 'stack-buffer-overrun'; $result.title = "Stack buffer overrun ($(if ($isSignal) { 'stack protector' } else { '/GS' }))$inText"; $result.text = "The stack cookie check failed$inText${where}: a fixed-size local buffer of that function was overwritten."; $result.hints += 'Look for fixed-size local arrays written without bounds checks in the function that owns the cookie.' }
                 5 { $result.category = 'invalid-parameter'; $result.title = "CRT invalid parameter$inText"; $result.text = "Fail-fast invalid argument (subcode 5)$inText${where}: a CRT/STL function was called with an invalid argument." }
                 10 { $result.category = 'bad-code-pointer'; $result.title = "Control Flow Guard violation$inText"; $result.text = "Control Flow Guard stopped an indirect call to an invalid target${inText}: a corrupted function pointer or vtable."; $result.stackRole = 'culprit-or-victim' }
-                default { $result.category = 'memory-corruption-detected'; $result.title = "Memory corruption detected ($($Exception.failFastName))$inText"; $result.text = "A runtime check detected corrupted memory ($($Exception.failFastName))$inText. The crashing stack may be a victim; the corrupting write happened earlier."; $result.stackRole = 'victim-possible'; $result.hints += 'Reproduce with PageHeap (gflags /p /enable inmation.exe /full) or ASan to catch the corrupting write.' }
+                default { $result.category = 'memory-corruption-detected'; $result.title = "Memory corruption detected ($checkName)$inText"; $result.text = "A runtime check detected corrupted memory ($checkName)$inText. The crashing stack may be a victim; the corrupting write happened earlier."; $result.stackRole = 'victim-possible'; $result.hints += $(if ($isSignal) { 'Reproduce with ASan or MALLOC_CHECK_=3 / valgrind to catch the corrupting write.' } else { 'Reproduce with PageHeap (gflags /p /enable inmation.exe /full) or ASan to catch the corrupting write.' }) }
             }
         }
         '0xC0000374' {

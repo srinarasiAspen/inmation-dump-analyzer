@@ -1,6 +1,6 @@
 ---
 name: crash-dump-analysis
-description: "Analyze crash dumps of the inmation / OT Data Fabric server (inmation.exe, inmation32.exe; .dmp, zipped dumps, folders of dumps) with scripts that do the heavy lifting: stage 1 crash summary (exception, classification, first stack lines, Lua/Web API context), stage 2 existing TFS bug search with pre-verdicts, stage 3 code evidence (build vs latest code, fixing commits) for the root cause. Use when: crash dump, minidump, .dmp, dump zip, access violation, abort, assert, std::terminate, server crashed, analyze dump, known bug for this crash, was this crash fixed, root cause of crash."
+description: "Analyze crash dumps of the inmation / OT Data Fabric server (inmation.exe, inmation32.exe minidumps; Linux core dumps of OT Data Fabric containers such as wsl-crash-*.dmp; zipped dumps; folders of dumps) with scripts that do the heavy lifting: stage 1 crash summary (exception or signal, classification, first stack lines, Lua/Web API context), stage 2 existing TFS bug search with pre-verdicts, stage 3 code evidence (build vs latest code, fixing commits) for the root cause. Use when: crash dump, minidump, .dmp, core dump, dump zip, access violation, SIGSEGV, SIGABRT, abort, assert, std::terminate, server crashed, container crashed, analyze dump, known bug for this crash, was this crash fixed, root cause of crash."
 ---
 
 # Crash dump analysis (inmation / OT Data Fabric)
@@ -42,8 +42,10 @@ Run every command with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`
    ```
    powershell -NoProfile -ExecutionPolicy Bypass -File "<scripts>\Invoke-CrashDumpAnalysis.ps1" -DumpPath "<dump path>"
    ```
-   Options: `-PdbPath "<pdb>"` if the user gave a PDB; `-RepoPath "<clone>"` if the source is in another folder;
-   `-SkipFetch` if only stage 1 (and 2) is needed; `-Recurse` only if asked or the folder has only subfolders.
+   Options: `-PdbPath "<pdb>"` if the user gave a PDB (for a Linux core: the `inmation.dbg` debug file);
+   `-RepoPath "<clone>"` if the source is in another folder; `-SkipFetch` if only stage 1 (and 2) is needed;
+   `-Recurse` only if asked or the folder has only subfolders. Linux cores (ELF, e.g. `wsl-crash-*.dmp`, `core.*`) are
+   detected automatically and analyzed with gdb in WSL - see [references/linux-cores.md](references/linux-cores.md).
 4. The last lines of the output are `KEY=value` lines. Use them:
 
    | Line | Meaning / what to do |
@@ -56,15 +58,17 @@ Run every command with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`
    | `BLOCKED_DUMP=` | A dump without verified symbols and the PDB it needs. See step 5. |
    | `EXTRACTED_DIR=` | Dumps unpacked from zips. Tell the user they can delete these folders when done. |
 
-5. Blocked dumps: if the only dump is blocked, tell the user which PDB is needed (name, GUID, age from the
-   `BLOCKED_DUMP=` line) and stop. If other dumps are fine, continue with them and list the blocked ones at the end.
+5. Blocked dumps: if the only dump is blocked, tell the user which symbol file is needed (name and GUID/age for
+   Windows, `inmation.dbg` and build-id for Linux, and the version from the `BLOCKED_DUMP=` line) and stop. The report
+   section "Blocked dumps" says where to get it. If other dumps are fine, continue with them and list the blocked ones
+   at the end.
 6. If the script stops with an error before `REPORT_PATH=`: report the error text. `cdb.exe not found` means the
-   Windows SDK Debugging Tools are missing; `Not a minidump` means the file is not a Windows dump
-   (a Linux core needs `<scripts>\Invoke-LinuxCoreAnalysis.ps1`, see [references/linux-cores.md](references/linux-cores.md)).
-   Run `<scripts>\Test-AnalyzerSetup.ps1` to check the machine.
-7. Answer: the content of `chat-summary.md` (you may shorten it, keep the code block with the stack), the report path,
-   whether the source is available, extracted folders. Then offer the next stage unless the user already asked for it:
-   "Next: stage 2 - search TFS for an existing bug with this stack. Continue?"
+   Windows SDK Debugging Tools are missing; `Not a minidump` means the file is neither a Windows minidump nor an ELF
+   core. Run `<scripts>\Test-AnalyzerSetup.ps1` to check the machine (cdb, git, shares, TFS, WSL/gdb, docker).
+7. Answer: the content of `chat-summary.md` (you may shorten it, keep the code block with the stack and the
+   classification in backticks, e.g. `null-pointer`), the report path, whether the source is available, extracted
+   folders. Then offer the next stage unless the user already asked for it or the summary says
+   "Stages 2-3: not useful": "Next: stage 2 - search TFS for an existing bug with this stack. Continue?"
 
 Do not rewrite the report after stage 1. It is complete.
 
@@ -102,9 +106,10 @@ Only with `SOURCE_AVAILABLE=true`. Otherwise say that stage 3 needs a clone of t
 4. Replace every `_analyst: ..._` placeholder in sections 3, 4 and 5. Also set the header rows `Verdict` and
    `Build commit` (and `Stages done`: remove "(evidence generated; verdict pending)").
 5. You may run more read-only commands when the evidence is not enough: `git show <sha> -- <file>`,
-   `git log -S"<code>" --oneline <build>..<ref> -- <file>`, or cdb queries (see
-   [references/manual-cdb.md](references/manual-cdb.md)). Stop after two attempts that do not bring the fact you need,
-   and write what is missing instead.
+   `git log -S"<code>" --oneline <build>..<ref> -- <file>`, or debugger queries with
+   `<scripts>\Invoke-DumpQuery.ps1` (the digest has the exact command per dump; see
+   [references/manual-cdb.md](references/manual-cdb.md) or [references/linux-cores.md](references/linux-cores.md)).
+   Stop after two attempts that do not bring the fact you need, and write what is missing instead.
 6. Run `Test-CrashReport.ps1 -ReportPath "<report>"` until it prints `REPORT_OK`.
 7. Answer: the verdict, the fixing commit or the root cause (trigger and product defect separately when a script or
    configuration triggered it), and the confidence. Do not offer anything after stage 3.
@@ -118,5 +123,7 @@ Only with `SOURCE_AVAILABLE=true`. Otherwise say that stage 3 needs a clone of t
 | Crash in a non-inmation DLL (e.g. `h21sys`) | The defect can be in that DLL or in the arguments inmation passed. Check the first inmation frame. |
 | Lua frames / Web API request in the summary | Read [references/lua-and-scripts.md](references/lua-and-scripts.md): the trigger is often a model script; native code must still not crash. |
 | Dump without exception (`no-exception`) | Manual or hang dump: look for blocked threads in `threads.txt` (per dump folder of the run). |
+| Classification `killed-by-signal` (Linux) | Nothing crashed: another process (docker stop/kill, orchestrator, watchdog) sent the signal. Do not search for a code defect; ask for the container logs and who stopped it. |
+| Linux core, more detail needed | [references/linux-cores.md](references/linux-cores.md) (gdb commands, sysroot, debug file). |
 | Version questions (1.x vs OT DF, dev vs release, brands) | [references/product-lines.md](references/product-lines.md) |
 | Report layout questions | [references/report-format.md](references/report-format.md) |

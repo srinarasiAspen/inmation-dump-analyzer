@@ -22,6 +22,19 @@ function Get-Prop($Object, [string]$Path) {
 
 function Format-Code([string]$Text) { return '`' + ($Text -replace '`', "'") + '`' }
 
+# Identity of the symbol file a blocked dump needs: PDB GUID/age (Windows) or GNU build-id (Linux).
+function Get-BlockedIdentity($Blocked) {
+    if (Get-Prop $Blocked 'identity') { return [string](Get-Prop $Blocked 'identity') }
+    return "GUID $(Get-Prop $Blocked 'pdbGuid') age $(Get-Prop $Blocked 'pdbAge')"
+}
+
+# 'v1.2.3.4' or 'version unknown'.
+function Get-VersionLabel($Dump) {
+    $v = Get-Prop $Dump 'module.fileVersion'
+    if ($v) { return "v$v" }
+    return 'version unknown'
+}
+
 function Format-MdCell([string]$Text) { return ($Text -replace '\|', '\|' -replace "`r?`n", '<br>') }
 
 function Format-ReportFrame($Frame, [int]$NameWidth = 0) {
@@ -109,7 +122,7 @@ function Get-ReportTitle($Summary) {
     $titles = @()
     foreach ($g in $groups) {
         $rep = @(Get-Prop $Summary 'dumps') | Where-Object { (Get-Prop $_ 'dump.path') -eq @(Get-Prop $g 'dumps')[0] } | Select-Object -First 1
-        $t = if (Get-Prop $rep 'blocked') { "unverified $(Get-Prop $rep 'exception.code') in v$(Get-Prop $rep 'module.fileVersion')" } else { Get-Prop $rep 'classification.title' }
+        $t = if (Get-Prop $rep 'blocked') { "unverified $(Get-Prop $rep 'exception.code') in $(Get-VersionLabel $rep)" } else { Get-Prop $rep 'classification.title' }
         if ($t) { $titles += $t }
     }
     $titles = @($titles | Select-Object -Unique)
@@ -134,13 +147,13 @@ function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-anal
     & $add ''
     & $add '| | |'
     & $add '|---|---|'
-    $dumpLines = @($dumps | ForEach-Object { "$(Get-DumpLabel $_): crash $(Get-Prop $_ 'dump.crashTimeUtc'), uptime $(Get-Prop $_ 'dump.uptime'), PID $(Get-Prop $_ 'dump.processId')$(if (@(Get-Prop $_ 'dump.copies').Count) { ", $(@(Get-Prop $_ 'dump.copies').Count) identical cop$(if (@(Get-Prop $_ 'dump.copies').Count -eq 1) { 'y' } else { 'ies' })" })" })
+    $dumpLines = @($dumps | ForEach-Object { $copyCount = @(Get-Prop $_ 'dump.copies' | Where-Object { $_ }).Count; "$(Get-DumpLabel $_): crash $(Get-Prop $_ 'dump.crashTimeUtc')$(if (Get-Prop $_ 'dump.uptime') { ", uptime $(Get-Prop $_ 'dump.uptime')" }), PID $(Get-Prop $_ 'dump.processId')$(if ($copyCount) { ", $copyCount identical cop$(if ($copyCount -eq 1) { 'y' } else { 'ies' })" })" })
     $dumpLines += @($failed | ForEach-Object { "$(Get-DumpLabel $_): not analyzed - $(@(Get-Prop $_ 'errors') -join '; ')" })
     & $add "| Dumps | $(Get-Prop $Summary 'uniqueDumps') unique dump(s) from $(Get-Prop $Summary 'inputDumpFiles') file(s) / archive entries<br>$(Format-MdCell ($dumpLines -join "`n")) |"
     & $add "| Binary | $(Format-MdCell ((@($dumps | ForEach-Object { Get-BuildText $_ }) | Select-Object -Unique) -join "`n")) |"
     $symLines = @($dumps | ForEach-Object {
-            if (Get-Prop $_ 'blocked') { "v$(Get-Prop $_ 'module.fileVersion'): not verified - see Blocked dumps" }
-            else { "$(Get-Prop $_ 'symbols.pdbName') GUID $(Get-Prop $_ 'module.pdbGuid') verified ($(Get-Prop $_ 'symbols.loadStatus')), from $(Get-Prop $_ 'symbols.source')" }
+            if (Get-Prop $_ 'blocked') { "$(Get-VersionLabel $_): not verified - see Blocked dumps" }
+            else { "$(Get-Prop $_ 'symbols.pdbName') $(if ([string](Get-Prop $_ 'module.pdbGuid') -like 'build-id*') { Get-Prop $_ 'module.pdbGuid' } else { "GUID $(Get-Prop $_ 'module.pdbGuid')" }) verified ($(Get-Prop $_ 'symbols.loadStatus')), from $(Get-Prop $_ 'symbols.source')" }
         } | Select-Object -Unique)
     & $add "| Symbols | $(Format-MdCell ($symLines -join "`n")) |"
     & $add '| Stages done | 1 crash summary |'
@@ -174,7 +187,7 @@ function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-anal
         $e = Get-Prop $rep 'exception'
         if ($e) {
             $access = if (Get-Prop $e 'access') { ", $(Get-Prop $e 'access')" } else { '' }
-            & $add "- Exception: ``$(Get-Prop $e 'code')`` $(Get-Prop $e 'name') at $(Get-Prop $e 'address')$access, thread $(Get-Prop $e 'threadId')"
+            & $add "- Exception: ``$(Get-Prop $e 'code')`` $(Get-Prop $e 'name')$(if (Get-Prop $e 'address') { " at $(Get-Prop $e 'address')" })$access, thread $(Get-Prop $e 'threadId')"
         }
         $a = Get-Prop $rep 'assertion'
         if ($a -and (Get-Prop $a 'expression')) { & $add "- Assertion: ``$(Get-Prop $a 'expression')`` ($(Get-Prop $a 'kind'))$(if (Get-Prop $a 'file') { " at $(Get-Prop $a 'file'):$(Get-Prop $a 'line')" })" }
@@ -184,7 +197,7 @@ function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-anal
         }
         foreach ($h in @(Get-Prop $cls 'hints')) { if ($h) { & $add "- Note: $h" } }
         $versions = @($members | ForEach-Object { "v$(Get-Prop $_ 'module.fileVersion') ($(Get-Prop $_ 'build.channel'))" } | Select-Object -Unique)
-        & $add "- Dumps: $($members.Count), $($versions -join ', '); crash times $(@($members | ForEach-Object { Get-Prop $_ 'dump.crashTimeUtc' }) -join ', '); uptimes $(@($members | ForEach-Object { Get-Prop $_ 'dump.uptime' }) -join ', ')"
+        & $add "- Dumps: $($members.Count), $($versions -join ', '); crash times $(@($members | ForEach-Object { Get-Prop $_ 'dump.crashTimeUtc' }) -join ', ')$(if (@($members | Where-Object { Get-Prop $_ 'dump.uptime' }).Count) { "; uptimes $(@($members | ForEach-Object { Get-Prop $_ 'dump.uptime' }) -join ', ')" })"
         $exact = @(Get-Prop $g 'exactSignatures')
         if ($exact.Count -gt 1) { & $add "- Exact signatures per build: $(@($exact | ForEach-Object { '`' + $_ + '`' }) -join '; ')" }
         & $add ''
@@ -241,14 +254,19 @@ function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-anal
         & $add '|---|---|---|---|---|---|---|'
         foreach ($b in $blocked) {
             $raw = @(Get-Prop $b 'rawStack' | Where-Object { Get-Prop $_ 'address' }) | Select-Object -First 1
-            & $add "| $(Format-MdCell (Get-DumpLabel $b)) | v$(Get-Prop $b 'module.fileVersion') ($(Get-Prop $b 'build.channel')) | ``$(Get-Prop $b 'exception.code')`` $(Get-Prop $b 'exception.name')$(if (Get-Prop $b 'exception.access') { ", $(Get-Prop $b 'exception.access')" }) | $(if ($raw) { Get-Prop $raw 'address' }) | $(Get-Prop $b 'blocked.requiredPdb') GUID $(Get-Prop $b 'blocked.pdbGuid') age $(Get-Prop $b 'blocked.pdbAge') | $(Get-Prop $b 'blocked.binaryLinkedUtc') | $(Format-MdCell ([string](Get-Prop $b 'blocked.installPath'))) |"
+            & $add "| $(Format-MdCell (Get-DumpLabel $b)) | $(Get-VersionLabel $b) ($(Get-Prop $b 'build.channel')) | ``$(Get-Prop $b 'exception.code')`` $(Get-Prop $b 'exception.name')$(if (Get-Prop $b 'exception.access') { ", $(Get-Prop $b 'exception.access')" }) | $(if ($raw) { Get-Prop $raw 'address' }) | $(Get-Prop $b 'blocked.requiredPdb') $(Get-BlockedIdentity (Get-Prop $b 'blocked')) | $(Get-Prop $b 'blocked.binaryLinkedUtc') | $(Format-MdCell ([string](Get-Prop $b 'blocked.installPath'))) |"
+        }
+        $hints = @($blocked | Where-Object { Get-Prop $_ 'blocked.hint' } | ForEach-Object { "$(Get-DumpLabel $_): $(Get-Prop $_ 'blocked.hint')" } | Select-Object -Unique)
+        if ($hints.Count -gt 0) {
+            & $add ''
+            foreach ($h in $hints) { & $add "- $h" }
         }
     }
 
     & $add ''
     & $add '## Artifacts'
     & $add ''
-    & $add "- Run folder: $(Get-Prop $Summary 'runDir') (``summary.json``, ``digest.md``, one folder per dump with ``cdb.log``, ``locals.txt``, ``threads.txt``, ``analyze.txt``)"
+    & $add "- Run folder: $(Get-Prop $Summary 'runDir') (``summary.json``, ``digest.md``, one folder per dump with ``cdb.log`` or ``gdb.log``, ``locals.txt``, ``threads.txt``, ``analyze.txt``)"
     foreach ($d in @(Get-Prop $Summary 'dumps')) {
         foreach ($f in @(Get-Prop $d 'files.scripts') + @(Get-Prop $d 'files.libraries')) { if ($f) { & $add "- $f" } }
     }
@@ -274,19 +292,22 @@ function New-ChatSummaryMarkdown($Summary, [string]$ReportPath) {
         $rep = $members[0]
         $name = $letters[[string](Get-Prop $g 'signature')]; $letter++
         $versions = @($members | ForEach-Object { "v$(Get-Prop $_ 'module.fileVersion') $(Get-Prop $_ 'build.channel')$(if (Get-Prop $_ 'build.brand') { " ($(Get-Prop $_ 'build.brand'))" })" } | Select-Object -Unique)
-        & $add "**$name. $(Get-Prop $rep 'classification.title')** - $($members.Count) dump(s), $($versions -join ', ')"
+        & $add "**$name. $(Get-Prop $rep 'classification.title')** (``$(Get-Prop $rep 'classification.category')``) - $($members.Count) dump(s), $($versions -join ', ')"
         & $add ''
         & $add "$(Get-Prop $rep 'classification.text')"
         & $add ''
-        $lines = if ((Get-Prop $rep 'signatureInfo.noApplicationFrame') -and (Get-Prop $rep 'cppException')) { @(Get-RecoveredThrowLines (Get-Prop $rep 'cppException') 6) } else { @((Get-ReportStack $rep 6).Lines) }
+        $lines = @(if ((Get-Prop $rep 'signatureInfo.noApplicationFrame') -and (Get-Prop $rep 'cppException')) { Get-RecoveredThrowLines (Get-Prop $rep 'cppException') 6 } else { (Get-ReportStack $rep 6).Lines })
         if ($lines.Count -gt 0) { & $add $fence; foreach ($l in $lines) { & $add $l }; & $add $fence }
         $lua = @(Get-Prop $rep 'luaStack' | Where-Object { (Get-Prop $_ 'kind') -eq 'Lua' } | Select-Object -First 2)
         foreach ($lf in $lua) { & $add "- Lua: ``$(Get-Prop $lf 'source')`` line $(Get-Prop $lf 'line')" }
         foreach ($sc in @(Get-Prop $rep 'scriptContext' | Where-Object { Get-Prop $_ 'request.endpoint' } | Select-Object -First 1)) { & $add "- Request: $(Get-Prop $sc 'request.method') ``$(Get-Prop $sc 'request.endpoint')``" }
+        $hint = @(Get-Prop $rep 'classification.hints' | Where-Object { $_ }) | Select-Object -First 1
+        if ($hint) { & $add "- Next: $hint" }
+        if ((Get-Prop $rep 'classification.category') -eq 'killed-by-signal') { & $add '- Stages 2-3: not useful - nothing faulted, there is no code defect to search for (unless the stop itself was unexpected).' }
         & $add ''
     }
     foreach ($b in @($dumps | Where-Object { Get-Prop $_ 'blocked' })) {
-        & $add "**Blocked:** $(Get-DumpLabel $b) v$(Get-Prop $b 'module.fileVersion') - $(Get-Prop $b 'exception.code') $(Get-Prop $b 'exception.name'). Needs $(Get-Prop $b 'blocked.requiredPdb') GUID $(Get-Prop $b 'blocked.pdbGuid') age $(Get-Prop $b 'blocked.pdbAge')."
+        & $add "**Blocked:** $(Get-DumpLabel $b) $(Get-VersionLabel $b) - $(Get-Prop $b 'exception.code') $(Get-Prop $b 'exception.name'). Needs $(Get-Prop $b 'blocked.requiredPdb') $(Get-BlockedIdentity (Get-Prop $b 'blocked')).$(if (Get-Prop $b 'blocked.hint') { ' ' + (Get-Prop $b 'blocked.hint') })"
     }
     foreach ($f in @(Get-Prop $Summary 'dumps' | Where-Object { -not (Get-Prop $_ 'module') })) {
         & $add "**Not analyzed:** $(Get-DumpLabel $f) - $(@(Get-Prop $f 'errors') -join '; ')"

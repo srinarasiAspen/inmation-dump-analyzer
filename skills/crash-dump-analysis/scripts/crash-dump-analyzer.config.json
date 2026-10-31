@@ -52,13 +52,21 @@
   "workRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\runs",
   "extractRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\extracted",
   "debuggerPath": "",
+  "linux": {
+    "wslDistribution": "",
+    "executables": [ "/inmation/bin/inmation" ],
+    "debugFile": "symbols\\linux_{arch}\\inmation.dbg",
+    "images": [ "harbor.inmationdev.com/aspentech-inmation/inmation:{version}" ],
+    "maxFoldersScanned": 400
+  },
   "sourceRepo": {
     "markers": [ "server/inmation" ]
   },
   "useMicrosoftSymbolServer": false,
   "cdbTimeoutSeconds": 900,
   "buildSourceRoots": [
-    "E:\\ws\\"
+    "E:\\ws\\",
+    "/root/inmation/"
   ],
   "topFramesForHistory": 6,
   "vcpkgPortRoots": [

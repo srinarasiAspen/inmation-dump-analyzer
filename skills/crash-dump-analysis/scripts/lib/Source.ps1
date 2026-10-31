@@ -38,3 +38,35 @@ function Get-ShortFunctionName([string]$Function) {
     if (-not $name -or $name -match '^operator' -or $name -match 'lambda') { return $null }
     return $name
 }
+
+# Repository path and source lines at the build commit for every own frame with a source file.
+function Add-SourceSnippets($Frames, [string]$Repo, [string]$Commit, $Config, [string[]]$OwnModules) {
+    if (-not $Repo -or -not $Commit) { return }
+    foreach ($frame in $Frames) {
+        if (-not $frame.sourceFile -or $OwnModules -notcontains $frame.module) { continue }
+        $frame.repoPath = Convert-ToRepoPath $Repo $Commit $frame.sourceFile $Config
+        if (-not $frame.repoPath -or -not $frame.sourceLine) { continue }
+        $fileLines = Get-GitFileLines $Repo $Commit $frame.repoPath
+        if (-not $fileLines) { continue }
+        $start = [Math]::Max(1, $frame.sourceLine - 4); $end = [Math]::Min($fileLines.Count, $frame.sourceLine + 4)
+        $frame.buildSnippet = (@($start..$end | ForEach-Object { '{0}{1,6}: {2}' -f $(if ($_ -eq $frame.sourceLine) { '>' } else { ' ' }), $_, $fileLines[$_ - 1] })) -join "`n"
+        $short = Get-ShortFunctionName $frame.function
+        if ($short) {
+            $window = $fileLines[0..([Math]::Min($fileLines.Count, $frame.sourceLine) - 1)]
+            $frame.functionFoundAtBuildCommit = [bool](@($window | Where-Object { $_.Contains("$short(") }).Count)
+        }
+    }
+}
+
+# Commits on the analysis ref that are not in the build commit and touch the files of the top frames.
+function Get-SourceHistory($Frames, [string]$Repo, [string]$BuildCommit, [string]$CompareCommit, $Config) {
+    if (-not $Repo -or -not $BuildCommit -or -not $CompareCommit) { return @() }
+    $result = @()
+    $histFiles = @($Frames | Where-Object { $_ -and $_.repoPath } | Select-Object -First ([int](Get-Cfg $Config 'topFramesForHistory' 6)) | ForEach-Object { $_.repoPath } | Select-Object -Unique)
+    foreach ($rel in $histFiles) {
+        $log = Invoke-Git $Repo @('log', '--format=%h%x09%ad%x09%an%x09%s', '--date=short', '-n', '60', "$BuildCommit..$CompareCommit", '--', $rel)
+        $existsNow = (Invoke-Git $Repo @('cat-file', '-e', ('{0}:{1}' -f $CompareCommit, $rel))).ExitCode -eq 0
+        $result += [ordered]@{ file = $rel; existsInCompareRef = $existsNow; commitsNotInBuild = @($log.Lines | Where-Object { $_ }) }
+    }
+    return $result
+}

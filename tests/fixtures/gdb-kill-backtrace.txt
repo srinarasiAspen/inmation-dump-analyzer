@@ -1,0 +1,9 @@
+#0  0x00007960a624293e in __futex_abstimed_wait_common () from /home/u/.cache/inmation-crash-analysis/sysroot/44d270294119f6bbc111a77ed2f4f30e3d8c3969/lib64/libc.so.6
+#1  0x00007960a6245018 in pthread_cond_wait@@GLIBC_2.3.2 () from /home/u/.cache/inmation-crash-analysis/sysroot/44d270294119f6bbc111a77ed2f4f30e3d8c3969/lib64/libc.so.6
+#2  0x00007960a649bd60 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /home/u/.cache/inmation-crash-analysis/sysroot/44d270294119f6bbc111a77ed2f4f30e3d8c3969/lib64/libstdc++.so.6
+#3  0x00005ff6c398a48b in std::condition_variable::wait<inmation::svc::wait_for_exit_signal()::<lambda()> > (this=<optimized out>, __p=..., __lock=...) at /usr/include/c++/12/condition_variable:102
+#4  inmation::svc::wait_for_exit_signal () at /root/inmation/server/inmation/src/main.cpp:50
+#5  0x00005ff6c3a6a126 in inmation::svc::run_console () at /root/inmation/server/inmation/src/inService.Run.cpp:479
+#6  0x00005ff6c3a6a535 in inmation::svc::run () at /root/inmation/server/inmation/src/inService.Run.cpp:524
+#7  0x00005ff6c3592904 in inmation::main (argc=<optimized out>, argv=<optimized out>, envp=<optimized out>) at /root/inmation/server/inmation/src/inInit.cpp:470
+#8  0x00005ff6c3585669 in main (argc=<optimized out>, argv=<optimized out>, envp=<optimized out>) at /root/inmation/server/inmation/src/main.cpp:62

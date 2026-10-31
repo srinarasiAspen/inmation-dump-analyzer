@@ -21,7 +21,7 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-foreach ($lib in 'Common', 'Cdb', 'BuildLookup', 'TfsAuth') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
+foreach ($lib in 'Common', 'Cdb', 'BuildLookup', 'TfsAuth', 'Frames', 'LinuxCore') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 $script:failures = 0
 function Write-Check([string]$Name, [string]$State, [string]$Detail) {
@@ -112,12 +112,15 @@ if (-not $SkipNetwork) {
     }
 }
 
-$wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-if ($wsl) {
+$gdbProblem = Test-WslGdb $config
+if ($gdbProblem) { Write-Check 'linux-gdb' 'WARN' "$gdbProblem - only needed for Linux core dumps" }
+else { Write-Check 'linux-gdb' 'OK' "WSL $(if (Get-WslDistroArgs $config) { "distribution $((Get-WslDistroArgs $config)[1])" } else { 'default distribution' }) with gdb" }
+$docker = Get-Command docker -ErrorAction SilentlyContinue
+if (-not $docker) { Write-Check 'linux-sysroot' 'WARN' 'docker not found - Linux cores then need -SysrootPath (executable and libraries of the image) to unwind' }
+else {
     $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-    try { $gdb = (& wsl.exe -e sh -c 'command -v gdb' 2>$null | Select-Object -First 1) } finally { $ErrorActionPreference = $eap }
-    Write-Check 'linux-cores' $(if ($gdb) { 'OK' } else { 'WARN' }) $(if ($gdb) { "WSL with gdb ($gdb)" } else { 'WSL found but no gdb in the default distribution (sudo apt install gdb) - only needed for Linux core dumps' })
+    try { & docker version --format '{{.Server.Version}}' *> $null; $dockerOk = $LASTEXITCODE -eq 0 } finally { $ErrorActionPreference = $eap }
+    Write-Check 'linux-sysroot' $(if ($dockerOk) { 'OK' } else { 'WARN' }) $(if ($dockerOk) { "docker available; images: $(@(Get-Cfg (Get-Cfg $config 'linux' $null) 'images' @()) -join ', ')" } else { 'docker found but the engine is not running (start Docker Desktop) - only needed for Linux core dumps' })
 }
-else { Write-Check 'linux-cores' 'WARN' 'WSL not installed - only needed for Linux core dumps' }
 
 if ($script:failures -eq 0) { Write-Host 'SETUP_OK' } else { Write-Host "SETUP_FAIL=$script:failures"; exit 1 }

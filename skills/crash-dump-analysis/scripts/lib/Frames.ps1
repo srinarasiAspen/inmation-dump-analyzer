@@ -2,14 +2,14 @@
 
 # Frames that only report a failure (CRT abort/assert/terminate, fail-fast helpers, exception dispatch). They are
 # skipped for the crash signature and searched for the assertion text.
-$script:noiseFunctionRegex = '^(abort|raise|_?wassert|_assert|_bson_assert_failed_on_line|bson_abort|std::terminate|terminate|__std_terminate|_invalid_parameter(_noinfo)?(_noreturn)?|_invoke_watson|_purecall|_CxxThrowException|RaiseException|RtlRaiseException|__report_gsfailure|__report_securityfailure|__fastfail|_?_?acrt_call_reportfault|_call_reportfault|__scrt_unhandled_exception_filter|KiUserExceptionDispatcher|RtlDispatchException|RtlUserThreadStart|BaseThreadInitThunk)$'
+$script:noiseFunctionRegex = '^(abort|raise|_?wassert|_assert|_bson_assert_failed_on_line|bson_abort|std::terminate|terminate|__std_terminate|_invalid_parameter(_noinfo)?(_noreturn)?|_invoke_watson|_purecall|_CxxThrowException|RaiseException|RtlRaiseException|__report_gsfailure|__report_securityfailure|__fastfail|_?_?acrt_call_reportfault|_call_reportfault|__scrt_unhandled_exception_filter|KiUserExceptionDispatcher|RtlDispatchException|RtlUserThreadStart|BaseThreadInitThunk|__pthread_kill_implementation|__pthread_kill_internal|__GI___pthread_kill|pthread_kill|__GI_raise|__GI_abort|__libc_message|__libc_message_impl|__fortify_fail|__chk_fail|__stack_chk_fail|malloc_printerr|__assert_fail_base|__assert_fail|__assert_perror_fail|__gnu_cxx::__verbose_terminate_handler|__cxxabiv1::__terminate|std::__terminate|__cxa_call_terminate|__cxa_throw|__cxa_rethrow|__cxa_pure_virtual|__restore_rt|_Unwind_RaiseException|_Unwind_Resume)$'
 # MSVC C++ exception dispatch/unwind frames: on the stack of every unhandled exception, never evidence of a bug.
 $script:ehRuntimeRegex = '^(__CxxFrameHandler\d*|__InternalCxxFrameHandler(Wrapper)?(<.*>)?|FindHandler(<.*>)?|CatchIt(<.*>)?|__FrameHandler\d*::\w+|_CallSettingFrame\w*|_CallCatchBlock\d*|__C_specific_handler|__GSHandlerCheck\w*|__FrameUnwindFilter|__ExceptionPtrRethrow|std::_Throw_Cpp_error|std::_Throw_C_error|std::rethrow_exception|RtlpExecuteHandlerFor(Exception|Unwind)|RtlUnwindEx)$'
 
 # Own product code: a frame of a product binary that is not a vcpkg port, the CRT/STL, std/boost or a reporting frame.
 function Test-ApplicationFrame($Frame, [string[]]$OwnModules) {
     if ($OwnModules -notcontains $Frame.module -or $Frame.thirdParty) { return $false }
-    if ($Frame.sourceFile -match '[\\/](vcpkg|vcpkg_installed|minkernel|vctools)[\\/]|[\\/]MSVC[\\/][^\\/]+[\\/]include[\\/]') { return $false }
+    if ($Frame.sourceFile -match '[\\/](vcpkg|vcpkg_installed|minkernel|vctools)[\\/]|[\\/]MSVC[\\/][^\\/]+[\\/]include[\\/]|[\\/]include[\\/]c\+\+[\\/]') { return $false }
     if ($Frame.function -match '^(std|boost|Concurrency|stdext)::|^0x') { return $false }
     return -not (Test-NoiseFrame $Frame)
 }
