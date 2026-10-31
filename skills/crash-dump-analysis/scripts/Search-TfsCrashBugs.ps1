@@ -60,10 +60,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-function Get-Cfg($Object, [string]$Name, $Default) {
-    if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { return $Object.PSObject.Properties[$Name].Value }
-    return $Default
-}
+foreach ($lib in 'Common', 'Frames') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 # 'powershell -File' passes '-Id 1,2' / '-Term a,b' as one string; split on commas outside <...> template arguments.
 function Split-ListArgument([string[]]$Values) {
@@ -82,9 +79,7 @@ function Split-ListArgument([string[]]$Values) {
     return @($out | Where-Object { $_ })
 }
 
-if (-not $ConfigPath) { $ConfigPath = $env:CRASH_DUMP_ANALYZER_CONFIG }
-if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'crash-dump-analyzer.config.json' }
-$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+$config = (Read-AnalyzerConfig $ConfigPath $PSScriptRoot).Config
 $tfsCfg = Get-Cfg $config 'tfs' $null
 $baseUrl = ([string](Get-Cfg $tfsCfg 'url' 'https://tfs3.inmationdev.com/tfs/inmation')).TrimEnd('/')
 $project = [string](Get-Cfg $tfsCfg 'project' 'system_inmation')
@@ -188,14 +183,11 @@ function Get-WorkItems([int[]]$Ids) {
 
 #region search terms
 
-$script:noiseFunctionRegex = '^(abort|raise|_?wassert|_assert|_bson_assert_failed_on_line|bson_abort|std::terminate|terminate|__std_terminate|_invalid_parameter(_noinfo)?(_noreturn)?|_invoke_watson|_purecall|_CxxThrowException|RaiseException|RtlRaiseException|__report_gsfailure|__report_securityfailure|__fastfail|_?_?acrt_call_reportfault|_call_reportfault|__scrt_unhandled_exception_filter|KiUserExceptionDispatcher|RtlDispatchException|RtlUserThreadStart|BaseThreadInitThunk)$'
-# MSVC C++ exception dispatch/unwind frames: on the stack of every unhandled exception, never evidence of a bug.
-$script:ehRuntimeRegex = '^(__CxxFrameHandler\d*|__InternalCxxFrameHandler(Wrapper)?(<.*>)?|FindHandler(<.*>)?|CatchIt(<.*>)?|__FrameHandler\d*::\w+|_CallSettingFrame\w*|_CallCatchBlock\d*|__C_specific_handler|__GSHandlerCheck\w*|__FrameUnwindFilter|__ExceptionPtrRethrow|std::_Throw_Cpp_error|std::_Throw_C_error|std::rethrow_exception|RtlpExecuteHandlerFor(Exception|Unwind)|RtlUnwindEx)$'
 $script:luaVmRegex = '^(luaV_\w+|luaD_\w+|luaG_\w+|luaT_\w+|luaH_\w+|luaC_\w+|luaE_\w+|luaF_\w+|luaO_\w+|lua_pcallk|lua_callk|lua_resume|lua_error|luaL_error|luaB_pcall|luaB_xpcall|f_call|resume)$'
 $script:osModuleRegex = '^(ntdll|KERNELBASE|kernel32|ucrtbase|vcruntime\d*|msvcp\d*|wow64\w*|combase|rpcrt4|ws2_32|mswsock)$'
 $script:keywordRegex = '^(const|static_cast|reinterpret_cast|nullptr|NULL|sizeof|return|true|false|unsigned|signed|struct|class|this)$'
 
-function Get-ShortFunctionName([string]$Function) {
+function Get-SearchTermName([string]$Function) {
     $name = $Function
     while ($name -match '<[^<>]*>') { $name = $name -replace '<[^<>]*>', '' }
     $parts = @($name -split '::' | Where-Object { $_ })
@@ -230,7 +222,7 @@ function Get-CrashTerms($Dump) {
         if (-not $function -or $function -match '^0x[0-9a-f]+$' -or $function -ieq $module -or $function -match '\+0x[0-9a-f]+$') { continue }
         if ($function -match $script:noiseFunctionRegex -or $function -match $script:ehRuntimeRegex -or $function -match $script:luaVmRegex -or $module -match $script:osModuleRegex) { continue }
         if ($function -match '^(std|Concurrency|boost)::') { continue }
-        $t = Get-ShortFunctionName $function
+        $t = Get-SearchTermName $function
         if (-not $t -or $seen.ContainsKey($t.ToLowerInvariant())) { continue }
         $seen[$t.ToLowerInvariant()] = $true
         $weight = if ($rank -eq 0) { 3.0 } elseif ($rank -le 2) { 2.0 } else { 1.0 }

@@ -52,6 +52,9 @@
   "workRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\runs",
   "extractRoot": "%LOCALAPPDATA%\\inmation-crash-analysis\\extracted",
   "debuggerPath": "",
+  "sourceRepo": {
+    "markers": [ "server/inmation" ]
+  },
   "useMicrosoftSymbolServer": false,
   "cdbTimeoutSeconds": 900,
   "buildSourceRoots": [
