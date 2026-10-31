@@ -233,7 +233,7 @@ function Find-LinuxDebugFile($Config, [string]$BuildId, [string]$Arch, [string[]
     # The build folders are scanned also for a cached debug file: the folder name is the build version.
     $relative = Expand-Template ([string](Get-Cfg $linuxCfg 'debugFile' 'symbols\linux_{arch}\inmation.dbg')) @{ arch = $(if ($Arch -eq 'arm64') { 'arm64' } else { 'amd64' }) }
     $roots = @()
-    foreach ($line in @(Get-Cfg $Config 'productLines' @() | Where-Object { [int](Get-Cfg $_ 'minMajor' 0) -ge 26 })) {
+    foreach ($line in @(Get-Cfg $Config 'productLines' @() | Where-Object { [int](Get-Cfg $_ 'minMajor' 0) -ge 2 })) {
         foreach ($k in 'releaseRoots', 'devRoots') { $roots += @(Get-Cfg $line $k @() | ForEach-Object { Expand-PathValue $_ }) }
     }
     $maxFolders = [int](Get-Cfg $linuxCfg 'maxFoldersScanned' 400)

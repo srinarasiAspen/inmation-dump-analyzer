@@ -62,8 +62,9 @@ Run every command with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`
    | `BLOCKED_DUMP=` | A dump without verified symbols and the PDB it needs. See step 5. |
    | `EXTRACTED_DIR=` | Dumps unpacked from zips. Tell the user they can delete these folders when done. |
 
-5. Blocked dumps: if the only dump is blocked, tell the user which symbol file is needed (name and GUID/age for
-   Windows, `inmation.dbg` and build-id for Linux, and the version from the `BLOCKED_DUMP=` line) and stop. The report
+5. Blocked dumps: if the only dump is blocked (or all dumps are), tell the user which symbol file is needed (name and
+   GUID/age for Windows, `inmation.dbg` and build-id for Linux, and the version from the `BLOCKED_DUMP=` line) and
+   stop - no stage 2 or 3 (the script prints no `STAGE2_COMMAND=` then). The report
    section "Blocked dumps" says where to get it. If other dumps are fine, continue with them and list the blocked ones
    at the end.
 6. If the script stops with an error before `REPORT_PATH=`: report the error text. `cdb.exe not found` means the

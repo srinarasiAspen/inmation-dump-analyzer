@@ -6,7 +6,7 @@ dump: `Build: file version v...`). The configuration is `scripts/crash-dump-anal
 
 | Line | File version | Release share | Latest code (analysis ref) |
 |---|---|---|---|
-| OT Data Fabric ("2.x", "OT DF") | major >= 26 (26.0, 26.1, 27.0 ...) | `\\file2\LatestRelease\OT_DATA_FABRIC` | `origin/main` |
+| OT Data Fabric ("2.x", "OT DF") | major >= 26 (26.0, 26.1, 27.0 ...); early builds 2.0.x | `\\file2\LatestRelease\OT_DATA_FABRIC` | `origin/main` |
 | inmation | 1.x | `\\file2\LatestRelease\RELEASE` | `origin/main-legacy` |
 
 - **Product version** (e.g. 1.3 for OT DF 26.x) is marketing only. Never route by it.

@@ -1,8 +1,8 @@
 {
   "productLines": [
     {
-      "name": "OT Data Fabric / 2.x (file version 26+)",
-      "minMajor": 26,
+      "name": "OT Data Fabric (file version 2.x or 26+)",
+      "minMajor": 2,
       "releaseRoots": [
         "\\\\file2.inmationdev.com\\LatestRelease\\OT_DATA_FABRIC"
       ],
