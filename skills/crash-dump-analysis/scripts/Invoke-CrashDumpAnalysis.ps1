@@ -33,6 +33,9 @@ printed as SUMMARY_JSON=<path>. Settings come from crash-dump-analyzer.config.js
 .EXAMPLE
 .\Invoke-CrashDumpAnalysis.ps1 -DumpPath \\server\crashes\customerX -PdbPath C:\sym\inmation.pdb -SkipFetch
 
+.PARAMETER ReportDir
+Folder for the crash report. Default: the dump's folder (or the run folder if that is read-only).
+
 .PARAMETER NoSource
 Skips everything that needs the git repository (build commit estimation, source lines, file history, vcpkg ports).
 This mode is also used automatically when the script does not run from a git clone or git is not installed.
@@ -46,7 +49,8 @@ param(
     [string]$OutDir,
     [switch]$Recurse,
     [switch]$SkipFetch,
-    [switch]$NoSource
+    [switch]$NoSource,
+    [string]$ReportDir
 )
 
 Set-StrictMode -Version 2.0
@@ -554,7 +558,7 @@ function Test-Writable([string]$Directory) {
     catch { return $false }
 }
 
-$reportDir = if (Test-Path -LiteralPath $DumpPath -PathType Container) { (Resolve-Path -LiteralPath $DumpPath).Path } else { Split-Path (Resolve-Path -LiteralPath $DumpPath).Path -Parent }
+$reportDir = if ($ReportDir) { New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null; (Resolve-Path -LiteralPath $ReportDir).Path } elseif (Test-Path -LiteralPath $DumpPath -PathType Container) { (Resolve-Path -LiteralPath $DumpPath).Path } else { Split-Path (Resolve-Path -LiteralPath $DumpPath).Path -Parent }
 $reportName = if ($dumpFiles.Count -eq 1) { [IO.Path]::GetFileName($dumpFiles[0]) + '.crash-report.md' } else { 'crash-report.md' }
 $reportPath = if (Test-Writable $reportDir) { Join-Path $reportDir $reportName } else { Join-Path $runDir $reportName }
 # Never overwrite an earlier report (it may hold stage 2/3 results): add a timestamp.
