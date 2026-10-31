@@ -85,6 +85,15 @@ function Resolve-SourceRepo([string]$RepoPath, [bool]$NoSource, $Config) {
     return [pscustomobject]@{ Repo = $path; Note = $null }
 }
 
+# Version of the plugin (plugin.json at the plugin root, three levels above the scripts folder).
+function Get-ToolVersion([string]$ScriptRoot) {
+    $manifest = Join-Path $ScriptRoot '..\..\..\plugin.json'
+    if (Test-Path -LiteralPath $manifest) {
+        try { return [string](Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).version } catch { }
+    }
+    return 'dev'
+}
+
 function Get-ExceptionName([uint32]$Code) {
     $names = @{
         0xC0000005L = 'ACCESS_VIOLATION'; 0xC00000FDL = 'STACK_OVERFLOW'; 0xC0000374L = 'HEAP_CORRUPTION'

@@ -109,7 +109,7 @@ function Get-AssertionInfo($Frames, [hashtable]$LocalsByFrame, $Exception) {
     }
     if ($Exception -and $Exception.failFastCode -eq 7) { $info.note = 'Exception 0xC0000409 subcode 7 (FAST_FAIL_FATAL_APP_EXIT) is how abort() terminates the process; this is not a stack buffer overrun.' }
     if (-not $reporter -and $info.kind -like 'std::terminate*') {
-        $info.unwindNote = 'No application frame on the unwound stack: the unwind stopped in the C++ exception dispatch (typical for a minidump without KERNELBASE/ntdll). The thrown exception and its throw site are still on the stack; decode them with the agent recipe "Unhandled C++ exception (std::terminate)".'
+        $info.unwindNote = 'No application frame on the unwound stack: the unwind stopped in the C++ exception dispatch (typical for a minidump without KERNELBASE/ntdll). The collector scans the stack for the thrown exception and its throw site (see "Thrown C++ exception").'
     }
     return [pscustomobject]$info
 }

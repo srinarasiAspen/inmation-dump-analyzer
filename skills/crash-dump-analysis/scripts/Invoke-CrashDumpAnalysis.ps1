@@ -53,7 +53,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-foreach ($lib in 'Common', 'Minidump', 'BuildLookup', 'Cdb', 'Source', 'Frames', 'Vcpkg', 'Lua', 'Archives') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
+foreach ($lib in 'Common', 'Minidump', 'BuildLookup', 'Cdb', 'Source', 'Frames', 'Vcpkg', 'Lua', 'Archives', 'CppException', 'Classification', 'Report') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 $configInfo = Read-AnalyzerConfig $ConfigPath $PSScriptRoot
 $config = $configInfo.Config
@@ -156,7 +156,7 @@ foreach ($dumpFile in $dumpFiles) {
     $errors = @()
     $copies = if ($dumpCopies.ContainsKey($dumpFile)) { @($dumpCopies[$dumpFile]) } else { @() }
     $sha = if ($script:sha256Cache.ContainsKey($dumpFile.ToLowerInvariant())) { $script:sha256Cache[$dumpFile.ToLowerInvariant()] } else { $null }
-    $entry = [ordered]@{ dump = [ordered]@{ path = $dumpFile; archive = $(if ($dumpOrigin.ContainsKey($dumpFile)) { $dumpOrigin[$dumpFile] } else { $null }); sha256 = $sha; copies = $copies; sizeBytes = $null; crashTimeUtc = $null; processStartUtc = $null; uptime = $null; uptimeSeconds = $null; processId = $null; architecture = $null; wow64 = $null }; module = $null; exception = $null; assertion = $null; symbols = $null; blocked = $null; build = $null; compare = $null; analyze = $null; signature = $null; signatureFamily = $null; crashStack = @(); rawStack = @(); thirdParty = @(); luaStack = @(); luaLibraries = @(); scriptContext = @(); registers = $null; disassembly = $null; localsTop = $null; sourceHistory = @(); files = $null; errors = $null }
+    $entry = [ordered]@{ dump = [ordered]@{ path = $dumpFile; archive = $(if ($dumpOrigin.ContainsKey($dumpFile)) { $dumpOrigin[$dumpFile] } else { $null }); sha256 = $sha; copies = $copies; sizeBytes = $null; crashTimeUtc = $null; processStartUtc = $null; uptime = $null; uptimeSeconds = $null; processId = $null; architecture = $null; wow64 = $null }; module = $null; exception = $null; assertion = $null; symbols = $null; blocked = $null; build = $null; compare = $null; analyze = $null; signature = $null; signatureFamily = $null; signatureInfo = $null; classification = $null; cppException = $null; crashStack = @(); rawStack = @(); thirdParty = @(); luaStack = @(); luaLibraries = @(); scriptContext = @(); registers = $null; disassembly = $null; localsTop = $null; sourceHistory = @(); files = $null; errors = $null }
 
     try {
         $info = Read-MinidumpInfo $dumpFile
@@ -389,6 +389,34 @@ foreach ($dumpFile in $dumpFiles) {
         $sig = Get-CrashSignature $frames $entry.assertion $ownModules
         $signature = $sig.Signature
         $entry.signatureFamily = $sig.Family
+        $entry.signatureInfo = [ordered]@{ topFrame = $(if ($sig.TopFrame) { $sig.TopFrame.index } else { $null }); firstOwnFrame = $(if ($sig.FirstOwnFrame) { $sig.FirstOwnFrame.index } else { $null }); noApplicationFrame = $sig.NoApplicationFrame }
+        $is32Bit = ($isWow64 -or $info.Architecture -eq 'x86')
+
+        # Unhandled C++ exception: the thrown object and the throw site are still on the stack even when the unwind
+        # stopped in the exception dispatch. Decode them with a raw stack scan.
+        $isTerminate = ($entry.assertion -and $entry.assertion.kind -like 'std::terminate*') -or ($info.Exception -and $info.Exception.code -eq '0xE06D7363')
+        if ($symbolsTrusted -and $isTerminate) {
+            Write-Host 'Running cdb (C++ exception record scan) ...'
+            try {
+                $cxxCmdFile = Join-Path $dumpOut 'cxx-scan.cdb.txt'
+                $cxxLog = Join-Path $dumpOut 'cxx-scan.log'
+                Set-Content -LiteralPath $cxxCmdFile -Value (New-CppExceptionCommands $is32Bit $isWow64) -Encoding ASCII
+                Invoke-CdbScript $cdb $dumpFile $symbolPath $imagePath $cxxLog $cxxCmdFile ([int](Get-Cfg $config 'cdbTimeoutSeconds' 900))
+                $cxx = @(ConvertFrom-CppExceptionScan @(Get-Content -LiteralPath $cxxLog) $ownModules)
+                if ($cxx.Count -gt 0) {
+                    $entry.cppException = $cxx[0]
+                    if ($cxx.Count -gt 1) { $errors += "Several C++ exception records on the stack ($(@($cxx | ForEach-Object { $_.thrownType }) -join ', ')); the first (innermost) is reported. See $cxxLog." }
+                    if ($sig.NoApplicationFrame -and $cxx[0].throwSite) {
+                        $ts = $cxx[0].throwSite
+                        $signature = "terminate: $($cxx[0].thrownType) thrown in $($ts.callSite) [stack scan]"
+                        $entry.signatureFamily = "terminate: $(Get-CompactFunctionName $cxx[0].thrownType) thrown in $($ts.module)!$(Get-CompactFunctionName $ts.function) [stack scan]"
+                    }
+                }
+                else { $errors += "Unhandled C++ exception, but no C++ exception record (0xE06D7363 / 0x19930520) was found on the stack. See $cxxLog." }
+            }
+            catch { $errors += "C++ exception scan: $($_.Exception.Message)" }
+        }
+
         if (-not $symbolsTrusted) {
             # Raw identity only: same binary (PDB GUID) and same faulting RVA. Never merged with symbolized signatures.
             $entry.rawStack = @(Get-RawStack $frames $(if ($info.Exception) { $info.Exception.address } else { $null }) $info.Modules)
@@ -399,6 +427,7 @@ foreach ($dumpFile in $dumpFiles) {
             $entry.signatureFamily = $signature
         }
         $entry.signature = $signature
+        $entry.classification = Get-CrashClassification $info.Exception $entry.assertion $(if ($symbolsTrusted) { $frames } else { @() }) $(if ($symbolsTrusted) { $sig } else { $null }) $entry.cppException $ownModules $is32Bit
 
         # Second cdb pass: Lua call chain and script/request strings of configured entry frames.
         $hasLua = [bool]($frames | Where-Object { $_.function -match '^(luaV_execute|luaD_precall|lua_pcallk|lua_callk|luaD_call)$' } | Select-Object -First 1)
@@ -496,7 +525,8 @@ foreach ($dumpFile in $dumpFiles) {
         $analyzeFile = Join-Path $dumpOut 'analyze.txt'
         Set-Content -LiteralPath $analyzeFile -Value $analyzeLines
         $contextLogFile = Join-Path $dumpOut 'context.log'
-        $entry.files = [ordered]@{ cdbLog = $cdbLog; analyze = $analyzeFile; locals = $localsFile; frame0LocalsDx = $frame0DxFile; threads = $threadsFile; contextLog = $(if (Test-Path -LiteralPath $contextLogFile) { $contextLogFile } else { $null }); scripts = @($entry.scriptContext | Where-Object { $_.savedScript } | ForEach-Object { $_.savedScript }); libraries = @($entry.luaLibraries | Where-Object { $_.savedPath } | ForEach-Object { $_.savedPath }) }
+        $cxxScanFile = Join-Path $dumpOut 'cxx-scan.log'
+        $entry.files = [ordered]@{ cdbLog = $cdbLog; analyze = $analyzeFile; locals = $localsFile; frame0LocalsDx = $frame0DxFile; threads = $threadsFile; contextLog = $(if (Test-Path -LiteralPath $contextLogFile) { $contextLogFile } else { $null }); cxxScan = $(if (Test-Path -LiteralPath $cxxScanFile) { $cxxScanFile } else { $null }); scripts = @($entry.scriptContext | Where-Object { $_.savedScript } | ForEach-Object { $_.savedScript }); libraries = @($entry.luaLibraries | Where-Object { $_.savedPath } | ForEach-Object { $_.savedPath }) }
     }
     catch {
         $errors += "Fatal: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
@@ -527,6 +557,8 @@ function Test-Writable([string]$Directory) {
 $reportDir = if (Test-Path -LiteralPath $DumpPath -PathType Container) { (Resolve-Path -LiteralPath $DumpPath).Path } else { Split-Path (Resolve-Path -LiteralPath $DumpPath).Path -Parent }
 $reportName = if ($dumpFiles.Count -eq 1) { [IO.Path]::GetFileName($dumpFiles[0]) + '.crash-report.md' } else { 'crash-report.md' }
 $reportPath = if (Test-Writable $reportDir) { Join-Path $reportDir $reportName } else { Join-Path $runDir $reportName }
+# Never overwrite an earlier report (it may hold stage 2/3 results): add a timestamp.
+if (Test-Path -LiteralPath $reportPath) { $reportPath = $reportPath -replace '\.md$', ".$(Split-Path $runDir -Leaf).md" }
 
 $summary = [ordered]@{
     generatedUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -550,6 +582,13 @@ $summary = [ordered]@{
 }
 $summaryPath = Join-Path $runDir 'summary.json'
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
+
+# Report draft (header + section 1) and chat summary, rendered from the summary as written.
+$summaryData = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$utf8NoBom = [Text.UTF8Encoding]::new($false)
+[IO.File]::WriteAllText($reportPath, (New-CrashReportMarkdown $summaryData "crash-dump-analyzer $(Get-ToolVersion $PSScriptRoot)"), $utf8NoBom)
+$chatSummaryPath = Join-Path $runDir 'chat-summary.md'
+[IO.File]::WriteAllText($chatSummaryPath, (New-ChatSummaryMarkdown $summaryData $reportPath), $utf8NoBom)
 
 function Limit-Lines([string]$Text, [int]$Max, [int]$MaxWidth = 200) {
     if (-not $Text) { return '' }
@@ -612,7 +651,7 @@ foreach ($group in $groups) {
     [void]$digest.AppendLine("## Signature: ``$($group.signature)`` ($($group.count) dump(s))")
     [void]$digest.AppendLine("")
     if (@($group.exactSignatures).Count -gt 1 -or @($group.versions).Count -gt 1) {
-        [void]$digest.AppendLine("Same crashing functions in $(@($group.versions).Count) file version(s) ($(@($group.versions) -join ', ')); exact signatures: $(@($group.exactSignatures | ForEach-Object { "``$_``" }) -join '; ')")
+        [void]$digest.AppendLine("Same crashing functions in $(@($group.versions).Count) file version(s) ($(@($group.versions) -join ', ')); exact signatures: $(@($group.exactSignatures | ForEach-Object { '`' + $_ + '`' }) -join '; ')")
         [void]$digest.AppendLine("")
     }
     [void]$digest.AppendLine("Representative dump: $($r.dump.path)")
@@ -634,6 +673,18 @@ foreach ($group in $groups) {
         [void]$digest.AppendLine("- Assertion / abort: $($a.kind) (frame $($a.frame) ``$($a.function)``)$expr$inFn$where; first reporting frame: $reportedBy")
         if ($a.note) { [void]$digest.AppendLine("  - $($a.note) Analyze the asserted condition, not memory corruption.") }
         if ($a.PSObject.Properties['unwindNote'] -and $a.unwindNote) { [void]$digest.AppendLine("  - $($a.unwindNote)") }
+    }
+    if ($r.classification) {
+        [void]$digest.AppendLine("- Classification: **$($r.classification.category)** - $($r.classification.text) (stack role: $($r.classification.stackRole))")
+        foreach ($h in @($r.classification.hints)) { if ($h) { [void]$digest.AppendLine("  - $h") } }
+    }
+    if ($r.cppException) {
+        $c = $r.cppException
+        $errText = if ($c.errorText) { ", error $($c.errorText)" } else { '' }
+        $siteText = if ($c.throwSite) { "``$($c.throwSite.callSite)`` ($([IO.Path]::GetFileName([string]$c.throwSite.sourceFile)):$($c.throwSite.sourceLine))" } else { 'not found' }
+        [void]$digest.AppendLine("- Thrown C++ exception (decoded from record $($c.record) on the stack): type ``$($c.thrownType)``$errText; throw site $siteText; thrown via $(@($c.thrownVia) -join ' <- ')")
+        $aboveThrow = @($c.frames | Where-Object { $_.application -or $_.helper } | Select-Object -First 12 | ForEach-Object { '`' + (Get-CompactFunctionName $_.function) + '`' }) -join ' <- '
+        [void]$digest.AppendLine("  - Frames above the throw ($($c.source)): $aboveThrow")
     }
     if ($r.dump -and $r.dump.uptime) { [void]$digest.AppendLine("- Process: started $($r.dump.processStartUtc), crashed $($r.dump.crashTimeUtc) (uptime $($r.dump.uptime))") }
     if ($r.symbols) {
@@ -857,6 +908,13 @@ Set-Content -LiteralPath $digestPath -Value $digest.ToString() -Encoding UTF8
 Write-Host "REPORT_PATH=$reportPath"
 Write-Host "SUMMARY_JSON=$summaryPath"
 Write-Host "DIGEST_MD=$digestPath"
+Write-Host "CHAT_SUMMARY=$chatSummaryPath"
 Write-Host "SOURCE_AVAILABLE=$(if ($repo) { 'true' } else { "false ($sourceNote)" })"
+$searchable = @($results | Where-Object { $_.module -and -not $_.blocked })
+$psExe = 'powershell -NoProfile -ExecutionPolicy Bypass -File'
+if ($searchable.Count -gt 0) {
+    Write-Host "STAGE2_COMMAND=$psExe `"$(Join-Path $PSScriptRoot 'Search-TfsCrashBugs.ps1')`" -SummaryJson `"$summaryPath`" -Auto"
+    if ($repo) { Write-Host "STAGE3_COMMAND=$psExe `"$(Join-Path $PSScriptRoot 'Get-CodeEvidence.ps1')`" -SummaryJson `"$summaryPath`"" }
+}
 foreach ($dir in @($extracted | ForEach-Object { Split-Path $_.DumpPath -Parent } | Select-Object -Unique)) { Write-Host "EXTRACTED_DIR=$dir" }
 foreach ($b in @($results | Where-Object { $_.blocked })) { Write-Host "BLOCKED_DUMP=$($b.dump.path) | needs $($b.blocked.requiredPdb) GUID $($b.blocked.pdbGuid) age $($b.blocked.pdbAge)" }

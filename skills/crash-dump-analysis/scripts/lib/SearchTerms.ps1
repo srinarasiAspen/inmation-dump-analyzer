@@ -12,6 +12,8 @@ function Get-SearchTermName([string]$Function) {
     if ($parts.Count -eq 0) { return $null }
     $method = $parts[-1]
     if (-not $method -or $method -match '^operator' -or $method -match 'lambda|`|\$|<|>|\s') { return $null }
+    # Destructor: the class name is what people write in bug reports.
+    if ($method.StartsWith('~')) { $method = $method.Substring(1); if ($method.Length -ge 6) { return $method } else { return $null } }
     $core = $method.TrimStart('_')
     if ($core.Length -ge 10 -or $core.Contains('_')) { return $method }
     if ($parts.Count -ge 2 -and $parts[-2] -notmatch '`|\s|anonymous') { return "$($parts[-2])::$method" }
@@ -33,6 +35,22 @@ function Get-CrashTerms($Dump, [int]$MaxFrameTerms = 6) {
         }
     }
     $rank = 0
+    # Unhandled C++ exception: the throw site and its callers (recovered from the stack) and the thrown type.
+    $cpp = Get-Cfg $Dump 'cppException' $null
+    if ($cpp) {
+        foreach ($f in @(Get-Cfg $cpp 'frames' @() | Where-Object { Get-Cfg $_ 'application' $false } | Select-Object -First 3)) {
+            $t = Get-SearchTermName ([string](Get-Cfg $f 'function' ''))
+            if (-not $t -or $seen.ContainsKey($t.ToLowerInvariant())) { continue }
+            $seen[$t.ToLowerInvariant()] = $true
+            $terms.Add([pscustomobject]@{ Text = $t; Kind = $(if ($rank -eq 0) { 'throw site (stack scan)' } else { 'caller of throw site (stack scan)' }); Weight = $(if ($rank -eq 0) { 3.0 } else { 2.0 }); Frame = $null })
+            $rank++
+        }
+        $type = (([string](Get-Cfg $cpp 'thrownType' '')) -split '::')[-1]
+        if ($type -and $type.Length -ge 6 -and $type -ne 'exception' -and -not $seen.ContainsKey($type.ToLowerInvariant())) {
+            $seen[$type.ToLowerInvariant()] = $true
+            $terms.Add([pscustomobject]@{ Text = $type; Kind = 'thrown C++ type'; Weight = 1.0; Frame = $null })
+        }
+    }
     foreach ($frame in @(Get-Cfg $Dump 'crashStack' @() | Sort-Object { [int]$_.index })) {
         if ($rank -ge $MaxFrameTerms) { break }
         $function = [string](Get-Cfg $frame 'function' '')

@@ -142,4 +142,15 @@ Describe 'TFS search terms' {
         $terms = @(Get-CrashTerms $dump)
         Assert-Equal @('collection_len', '_mongoc_cursor_collection', 'l_opt_safecall') @($terms | ForEach-Object { $_.Text })
     }
+    It 'uses the recovered throw site and thrown type of an unhandled C++ exception' {
+        $dump = [pscustomobject]@{
+            cppException = [pscustomobject]@{ thrownType = 'std::system_error'; frames = @(
+                    [pscustomobject]@{ function = 'std::_Throw_Cpp_error'; application = $false },
+                    [pscustomobject]@{ function = 'OpcUa::Server::RequestContext::~RequestContext'; application = $true },
+                    [pscustomobject]@{ function = 'OpcUa::Server::UaSession::Close'; application = $true }) }
+            crashStack = @([pscustomobject]@{ index = 0; module = 'inmation'; function = 'abort' }, [pscustomobject]@{ index = 10; module = 'inmation'; function = '__CxxFrameHandler4' })
+        }
+        $terms = @(Get-CrashTerms $dump)
+        Assert-Equal @('RequestContext', 'UaSession::Close', 'system_error') @($terms | ForEach-Object { $_.Text })
+    }
 }
