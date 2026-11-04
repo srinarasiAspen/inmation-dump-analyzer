@@ -27,7 +27,7 @@ Never take lines of a `@...#library` frame from the entry script.
 
 ## Lua versions
 
-1.x uses Lua 5.3, OT Data Fabric Lua 5.4.6+/5.5 (the digest's third-party table shows the `lua` port version). The
+1.x uses Lua 5.3, OT Data Fabric Lua 5.5 (the digest's third-party table shows the `lua` port version). The
 collector handles both layouts; for manual reads: 5.3 `ci->func` is a `TValue*`, chunk name `(char*)(p->source+1)`,
 line `p->lineinfo[(ci->u.l.savedpc - p->code) - 1]`; 5.4.6+/5.5 `ci->func.p->val`, line from `abslineinfo` + relative
 `lineinfo`; 5.5 short strings at `&ts->contents`, long strings at `ts->contents`.
