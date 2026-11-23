@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'TestFramework.ps1')
 $script:LibRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'skills\crash-dump-analysis\scripts\lib'
 $script:ScriptRoot = Split-Path $script:LibRoot -Parent
+$script:PerfLibRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'skills\perf-counter-analysis\scripts\lib'
 
 foreach ($file in @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter "$Filter.Tests.ps1" | Sort-Object Name)) {
     try { . $file.FullName }

@@ -172,3 +172,51 @@ them (backports/cherry-picks), and the fix diff for the crashing files. Sections
 
 User overrides: `%LOCALAPPDATA%\inmation-crash-analysis\config.json` is merged over the plugin's config (only the keys it
 contains), so an update of the plugin keeps local settings.
+
+## Performance counters (perf-counter-analysis skill)
+
+Scripts in [skills/perf-counter-analysis/scripts](../skills/perf-counter-analysis/scripts). They use the libraries of
+the crash-dump-analysis skill (configuration, PDB lookup, cdb), so both skills must be installed side by side; the
+configuration file is the same. Only the dump and its PDB are used: no source code is read, and none needs to be on
+the machine.
+
+| Script | Purpose |
+|---|---|
+| `Get-PerfCounters.ps1` | Reads the counters of one or more objects from a Windows dump of `inmation.exe` -> `perf-data.json`, `perf-data.csv`; with `-Counters` one PNG chart per object and counter, `perf-report.md`, `perf-summary.md`. `-ListObjects` lists the objects that have counters; `-PerfJson` re-plots without the debugger. |
+| `Measure-PerfCorrelation.ps1` | Correlates counters of one or more objects (one or more `perf-data.json`): pairs among the hinted counters, hinted vs. `-Against`, or every counter (`*`) -> `correlation.md`, `correlation-summary.md`, `correlation.json`, heat map, one chart per top pair. |
+| `PerfDump.js` | cdb JavaScript extension used by `Get-PerfCounters.ps1` (loaded with `.scriptload`). |
+
+How the counters are read:
+
+1. The PDB is found and verified exactly as in stage 1 (`lib/Symbols.ps1`: `-PdbPath`, next to the dump, in its zip,
+   build shares; GUID check). cdb must load it as `private pdb symbols`; otherwise `PERF_RESULT=blocked`.
+2. One cdb run: `dt <module>!inmation::model::CModelPerformance::CODEENUM` and `...CModelClasses::CODEENUM` give the
+   counter and class names; `PerfDump.js` walks `inmation::model::_maps.path_objects_` (the hash list, with raw memory
+   reads - measured about 10-70 microseconds per object, so seconds for large models) and compares the paths
+   case-insensitively (ASCII). All requested paths
+   are matched in one walk. For each object it reads `performance_->items` and, per counter, the 4 x 5 buffers
+   `prop[timebase][aggregate]->ex.buffer` (`{double v; int64 t}`, t = bucket start in ms since 1970 UTC). Every field
+   offset comes from the PDB type information; nothing about the STL layout is hard-coded.
+3. Paths that are not found get up to 25 candidates: the same last path segment, then siblings (same parent) ordered by
+   the similarity of their name (typos), then paths containing the segment. Several objects with the same path
+   (ambiguous paths) are listed; the first with counters is read. Missing objects are warnings in the report and summary.
+4. The last bucket of each timebase is still filling at dump time; it is drawn as a hollow marker and left out of all
+   statistics and correlations.
+
+Correlation (per pair and timebase, complete buckets with the same start): Pearson `r`, Pearson of the bucket-to-bucket
+changes, Spearman, the best lag of the changes (up to `-MaxLag` buckets) and p-values (Fisher z). The pre-verdict rules
+(`strong`, `lagged`, `moderate`, `inconsistent`, `trend-only`, `same-signal`, `none`) are in `lib/PerfStats.ps1` and
+explained in [references/correlation.md](../skills/perf-counter-analysis/references/correlation.md). Changes count only
+when both counters change in at least 5 buckets (step-like counters would otherwise correlate perfectly on one event).
+For `*` scans the top list takes each counter at most twice, so it shows different relationships. Anomalies per
+counter: spike (robust z >= 5 and >= 25% above the median of the bucket maxima), step (>= 3 standard deviations, >= 5% of
+the level, and clearly better than a straight line), trend (rank correlation with time >= 0.8); cumulative counters are
+skipped.
+
+Output folders: `<workRoot>\perf-<timestamp>\` (data, charts, reports, `cdb-perf.log`, `perf.cdb.txt`), correlation runs
+in `correlation-<timestamp>\` next to the first `perf-data.json`. Console keys: `PERF_RESULT`, `PERF_JSON`, `PERF_CSV`,
+`PERF_OBJECT*`, `PERF_COUNTER*`, `PERF_REPORT`, `PERF_SUMMARY`, `PERF_BLOCKED`, `PERF_WARNING`, `PERF_ERROR`,
+`PERF_EXCLUDED*`, `PERF_ANOMALY*`, `CORRELATION_*`, `HEATMAP_PNG`, `NEXT_STEP*`.
+
+Limits: Windows dumps of `inmation.exe` with full memory (`FullMemory` = Memory64List stream); no Linux cores yet; units
+of the counters are not in the dump.

@@ -133,7 +133,7 @@ Only with `SOURCE_AVAILABLE=true`. Otherwise say that stage 3 needs a clone of t
 | Classification `heap-corruption` / `memory-corruption-detected` | The stack may be a victim. Never call it the root cause; recommend PageHeap/ASan. |
 | Crash in a non-inmation DLL (e.g. `h21sys`) | The defect can be in that DLL or in the arguments inmation passed. Check the first inmation frame. |
 | Lua frames / Web API request in the summary | Read [references/lua-and-scripts.md](references/lua-and-scripts.md): the trigger is often a model script; native code must still not crash. |
-| Dump without exception (`no-exception`) | Manual or hang dump: look for blocked threads in `threads.txt` (per dump folder of the run). |
+| Dump without exception (`no-exception`) | Manual or hang dump: look for blocked threads in `threads.txt` (per dump folder of the run). For load or slow-down questions, the `perf-counter-analyzer` agent reads the performance counters (CPU, memory, buffers, ...) of the objects from the same dump. |
 | Classification `killed-by-signal` (Linux) | Nothing crashed: another process (docker stop/kill, orchestrator, watchdog) sent the signal. Do not search for a code defect; ask for the container logs and who stopped it. |
 | Linux core, more detail needed | [references/linux-cores.md](references/linux-cores.md) (gdb commands, sysroot, debug file). |
 | Version questions (1.x vs OT DF, dev vs release, brands) | [references/product-lines.md](references/product-lines.md) |

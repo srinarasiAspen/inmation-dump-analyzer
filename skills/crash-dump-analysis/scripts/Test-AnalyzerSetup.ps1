@@ -45,6 +45,10 @@ try {
     $cdb = Find-Cdb $config
     $ver = (Get-Item -LiteralPath $cdb).VersionInfo.ProductVersion
     Write-Check 'cdb' 'OK' "$cdb ($ver)"
+    # Performance counters (perf-counter-analysis) are read with a cdb JavaScript extension.
+    $jsProvider = Join-Path (Split-Path $cdb -Parent) 'winext\JsProvider.dll'
+    if (Test-Path -LiteralPath $jsProvider) { Write-Check 'cdb-javascript' 'OK' $jsProvider }
+    else { Write-Check 'cdb-javascript' 'WARN' "$jsProvider not found: performance counter analysis needs the JavaScript provider of a current Debugging Tools for Windows." }
 }
 catch { Write-Check 'cdb' 'FAIL' "$($_.Exception.Message) Install the Windows SDK 'Debugging Tools for Windows' (winget install Microsoft.WindowsSDK.10.0.26100, select Debugging Tools)." }
 

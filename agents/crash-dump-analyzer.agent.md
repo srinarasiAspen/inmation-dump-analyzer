@@ -50,3 +50,6 @@ folder; the digest prints the exact command for each dump). Never build cdb or g
 Short. Link the report. Per signature (A, B, ...): what crashed (classification + first stack lines in a code block),
 then the stage result (work item and its meaning / verdict, fixing commit or root cause with confidence). Name blocked
 dumps with the PDB they need and extracted folders the user can delete.
+
+Questions about load, performance counters or what the process did before a manual / hang dump (CPU, memory, buffers,
+backlogs of an object) are for the `perf-counter-analyzer` agent: say so and offer it.

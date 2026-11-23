@@ -1,7 +1,9 @@
 # Contributor guide (humans and coding agents)
 
-This repository is an agent plugin: [plugin.json](plugin.json), the agent in [agents/](agents), and the
-`crash-dump-analysis` skill with its PowerShell scripts in [skills/crash-dump-analysis/](skills/crash-dump-analysis).
+This repository is an agent plugin: [plugin.json](plugin.json), the agents in [agents/](agents), the
+`crash-dump-analysis` skill with its PowerShell scripts in [skills/crash-dump-analysis/](skills/crash-dump-analysis), and
+the `perf-counter-analysis` skill in [skills/perf-counter-analysis/](skills/perf-counter-analysis), which reuses the
+crash skill's `scripts/lib` (configuration, PDB lookup, cdb).
 The design goal: **the scripts make every decision that can be made deterministically**, so that less capable models
 only run commands, read `KEY=value` lines and confirm a few judgment calls. When a model gets something wrong, prefer
 moving the decision into a script (with a test) over adding more prose to the skill.
@@ -13,7 +15,8 @@ moving the decision into a script (with a test) over adding more prose to the sk
 | `skills/crash-dump-analysis/SKILL.md` | The procedure the model follows. Short numbered steps, tables, exact commands. |
 | `skills/crash-dump-analysis/references/` | Decision guides loaded on demand (stage 2 confirm, stage 3 verdict, Lua, Linux, cdb, report format). |
 | `skills/crash-dump-analysis/scripts/*.ps1` | Entry scripts (one per stage, plus query, linter, setup check). |
-| `skills/crash-dump-analysis/scripts/lib/*.ps1` | Shared modules, dot-sourced. No side effects at load time except `$script:` constants. |
+| `skills/crash-dump-analysis/scripts/lib/*.ps1` | Shared modules, dot-sourced. No side effects at load time except `$script:` constants. `Symbols.ps1` is the PDB lookup for scripts outside the collector. |
+| `skills/perf-counter-analysis/` | Performance counters: `SKILL.md`, `references/`, `scripts/Get-PerfCounters.ps1`, `scripts/Measure-PerfCorrelation.ps1`, `scripts/PerfDump.js` (cdb JavaScript), `scripts/lib/Perf*.ps1`. |
 | `tests/` | Unit tests (`*.Tests.ps1`), fixtures, `Compare-Runs.ps1` for corpus regression. |
 | `docs/how-it-works.md` | What the scripts do, all config keys. |
 
@@ -22,9 +25,11 @@ moving the decision into a script (with a test) over adding more prose to the sk
 - **Console output keys** read by the skill/agent: `REPORT_PATH`, `SUMMARY_JSON`, `DIGEST_MD`, `CHAT_SUMMARY`,
   `SOURCE_AVAILABLE`, `STAGE2_COMMAND`, `STAGE3_COMMAND`, `BLOCKED_DUMP`, `EXTRACTED_DIR`, `PRE_VERDICT`, `CONFIRM_ITEM`,
   `REPORT_UPDATED`, `TFS_ERROR`, `CODE_EVIDENCE_MD`, `NEXT_STEP`, `REPORT_ISSUE`, `REPORT_OK`, `QUERY_*`, `CHECK`,
-  `SETUP_OK`. Renaming one means updating SKILL.md, the agent and the references in the same commit.
+  `SETUP_OK`; perf skill: `PERF_RESULT`, `PERF_*`, `CORRELATION_*`, `HEATMAP_PNG`, `NEXT_STEP*`.
+  Renaming one means updating the SKILL.md, the agent and the references in the same commit.
 - **summary.json schema**: Windows and Linux entries share it (`dump.platform` tells them apart). Stage 2/3 scripts and
-  `Compare-Runs.ps1` read it. Add fields; do not rename.
+  `Compare-Runs.ps1` read it. Add fields; do not rename. The same holds for `perf-data.json` (read by
+  `Measure-PerfCorrelation.ps1` and re-plots with `-PerfJson`) and the `@@PERF|` lines of `PerfDump.js`.
 - **Report sections** (`$script:ReportSections` in `lib/Report.ps1`) and the `_analyst: ..._` placeholder convention
   used by `Test-CrashReport.ps1`.
 - **Read-only**: scripts never modify a repository (only `git fetch`), never write to TFS (only the WIQL POST), never

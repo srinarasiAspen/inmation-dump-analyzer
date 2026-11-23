@@ -1,7 +1,7 @@
 {
   "name": "inmation-crash-dump-analyzer",
-  "description": "Crash dump analysis for the inmation / OT Data Fabric server: the crash-dump-analyzer agent and the crash-dump-analysis skill with scripts that summarize Windows crash dumps and Linux core dumps (cdb / gdb, verified symbols, Lua / Web API context, C++ exception decoding), search TFS for existing bugs, and collect code evidence for the root cause. Works from any workspace; uses the inmation server repository when it is the workspace.",
-  "version": "1.0.0",
+  "description": "Dump analysis for the inmation / OT Data Fabric server. crash-dump-analyzer agent and crash-dump-analysis skill: scripts that summarize Windows crash dumps and Linux core dumps (cdb / gdb, verified symbols, Lua / Web API context, C++ exception decoding), search TFS for existing bugs, and collect code evidence for the root cause. perf-counter-analyzer agent and perf-counter-analysis skill: read the performance counters of objects from a Windows dump, plot them, and find correlations between counters. Works from any workspace; uses the inmation server repository when it is the workspace.",
+  "version": "1.1.0",
   "author": {
     "name": "AspenTech inmation"
   },
@@ -10,12 +10,15 @@
     "minidump",
     "cdb",
     "inmation",
-    "root cause"
+    "root cause",
+    "performance counters",
+    "correlation"
   ],
   "agents": [
     "./agents"
   ],
   "skills": [
-    "./skills/crash-dump-analysis"
+    "./skills/crash-dump-analysis",
+    "./skills/perf-counter-analysis"
   ]
 }

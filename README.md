@@ -18,6 +18,19 @@ The scripts do the heavy lifting (cdb / gdb, symbol lookup and verification, TFS
 report. The model runs them in order, reads `KEY=value` lines, confirms a few judgment calls and answers. That is what
 makes the analysis work with less capable models.
 
+A second agent, **perf-counter-analyzer**, reads the **performance counters** that the server keeps per object (Core,
+connectors, data stores, web server, ...) from a Windows dump of `inmation.exe` (crash, hang or manual dump):
+
+1. **Counters of one or more objects** by path - the second, minute, hour and day buckets (sum, num, avg, min, max) -
+   as PNG charts (one panel per timebase), statistics per counter and a CSV.
+2. **Correlation** between counters of the same or different objects - the counters the user names, one against all,
+   or every counter - with deterministic pre-verdicts (`strong`, `lagged`, `moderate`, `trend-only`, `same-signal`, ...),
+   anomalies (spike, step, trend), a heat map and charts of the top pairs. Only the dump and its PDB are used; no
+   source code is needed.
+
+Example: `Plot CPU and InmationMemoryUsage of /System/Core in C:\dumps\inmation.exe.1234.dmp` or
+`Is the TimeSeriesLoad of /System/Core/Stores/VQT related to the Core CPU? Check every counter.`
+
 ## Install
 
 The plugin is a folder with [plugin.json](plugin.json), an agent ([agents/](agents)) and a skill with scripts
@@ -34,13 +47,14 @@ serves every workspace.
   ```
 
 Then pick **crash-dump-analyzer** in the agent picker and write e.g. `Analyze C:\dumps\inmation.exe.11664.dmp` or
-`Is there a bug for the crash in \\server\crashes\customerX?`.
+`Is there a bug for the crash in \\server\crashes\customerX?`. For performance counters pick **perf-counter-analyzer**.
 
 **Copilot CLI / Copilot sessions**: `/plugin install <git URL of this repository>`, then select the
-**crash-dump-analyzer** agent. VS Code also picks up plugins installed by the CLI.
+**crash-dump-analyzer** or **perf-counter-analyzer** agent. VS Code also picks up plugins installed by the CLI.
 
-**Without plugin support**: copy `agents/crash-dump-analyzer.agent.md` to `.github/agents/` of a repository and
-`skills/crash-dump-analysis/` to `.github/skills/`. The agent finds the scripts in either place.
+**Without plugin support**: copy `agents/*.agent.md` to `.github/agents/` of a repository and `skills/crash-dump-analysis/`
+and `skills/perf-counter-analysis/` to `.github/skills/` (side by side: the perf skill uses the libraries of the crash
+skill). The agents find the scripts in either place.
 
 Check the machine once (prints `CHECK=` lines and `SETUP_OK`):
 
@@ -56,6 +70,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File skills\crash-dump-analysis\s
 | Linux cores | WSL with `gdb`; Docker Desktop with access to the product images (or `-SysrootPath`); `inmation.dbg` from the build folder (found automatically on the shares, or `-PdbPath`) |
 | Stage 2 | Read access to the TFS project: domain account (Windows authentication), or a PAT in `TFS_PAT` / `~/.config/inmation-ado/.env` |
 | Stage 3 | A clone of the inmation server repository: open it as the workspace, pass `-RepoPath`, or set `CRASH_DUMP_ANALYZER_REPO`. Without it stages 1 and 2 still work ("no-source mode") |
+| Performance counters | A Windows dump of `inmation.exe` with full memory and the matching PDB (as for Windows dumps); cdb's JavaScript provider (`winext\JsProvider.dll`, part of current Debugging Tools). No source code |
 
 Windows PowerShell 5.1 is enough; nothing else to install.
 
@@ -70,6 +85,10 @@ Windows PowerShell 5.1 is enough; nothing else to install.
 
 Dumps without verified symbols are **BLOCKED**: only raw facts and the exact symbol file needed (PDB GUID/age, or
 GNU build-id and version for Linux). Symbols of another build are never used.
+
+Performance counters: `%LOCALAPPDATA%\inmation-crash-analysis\runs\perf-<timestamp>\` with `perf-data.json` / `.csv`,
+`charts\<object>\<counter>.png`, `perf-report.md`, `perf-summary.md`; correlation runs in `correlation-<timestamp>\`
+next to it (`correlation.md`, `correlation-summary.md`, `correlation.json`, heat map, pair charts).
 
 ## Safety
 
@@ -88,12 +107,18 @@ holds shares, product lines, brands, TFS, git refs and Linux settings. Local cha
 
 ```
 plugin.json                          plugin manifest (agents, skills)
-agents/crash-dump-analyzer.agent.md  the agent: rules, stages, answer format
+agents/crash-dump-analyzer.agent.md  the crash agent: rules, stages, answer format
+agents/perf-counter-analyzer.agent.md the performance counter agent
 skills/crash-dump-analysis/
   SKILL.md                           step-by-step procedure the model follows
   references/                        decision guides (stage 2 confirm, stage 3 verdict, Lua, Linux, cdb, report)
   scripts/                           collector, TFS search, code evidence, report linter, dump query, setup check
-  scripts/lib/                       shared PowerShell modules
+  scripts/lib/                       shared PowerShell modules (also used by the perf skill)
+skills/perf-counter-analysis/
+  SKILL.md                           procedure: read and plot counters, correlation
+  references/                        meaning of buckets and aggregates, interpreting correlations
+  scripts/                           Get-PerfCounters.ps1, Measure-PerfCorrelation.ps1, PerfDump.js (cdb)
+  scripts/lib/                       data, statistics, charts, reports
 tests/                               unit tests (no dumps or network needed), fixtures, run comparison
 docs/how-it-works.md                 what the scripts do in detail
 ```

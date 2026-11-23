@@ -148,6 +148,8 @@ function Read-MinidumpInfo([string]$Path) {
             ProcessId    = $processId
             Exception    = $exception
             Modules      = $modules
+            # Memory64ListStream: the dump holds full process memory (heap), not only stacks and selected ranges.
+            FullMemory   = $streams.ContainsKey(9)
         }
     }
     finally { $fs.Dispose() }

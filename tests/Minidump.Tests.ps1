@@ -2,16 +2,17 @@
 . (Join-Path $script:LibRoot 'Minidump.ps1')
 
 # Writes a minimal minidump: SystemInfo, MiscInfo, Exception and ModuleList streams with one module and a CodeView record.
-function New-TestMinidump([string]$Path, [uint32]$ExceptionCode, [uint64[]]$Parameters, [string]$ModulePath, [string]$FileVersion, [Guid]$PdbGuid) {
+function New-TestMinidump([string]$Path, [uint32]$ExceptionCode, [uint64[]]$Parameters, [string]$ModulePath, [string]$FileVersion, [Guid]$PdbGuid, [switch]$FullMemory) {
     $ms = New-Object IO.MemoryStream
     $w = New-Object IO.BinaryWriter($ms)
     $w.Write([byte[]]::new(4096))
     $at = { param([int64]$Pos) $ms.Position = $Pos }
     $dumpTime = [uint32]1790000000
-    # header + 4 directory entries
-    & $at 0
-    $w.Write([uint32]0x504D444D); $w.Write([uint32]0xA793); $w.Write([uint32]4); $w.Write([uint32]32); $w.Write([uint32]0); $w.Write($dumpTime); $w.Write([uint64]0)
     $dir = @(@(7, 56, 200), @(15, 24, 300), @(6, 168, 400), @(4, 112, 700))
+    if ($FullMemory) { $dir += , @(9, 16, 1800) }
+    # header + directory entries
+    & $at 0
+    $w.Write([uint32]0x504D444D); $w.Write([uint32]0xA793); $w.Write([uint32]$dir.Count); $w.Write([uint32]32); $w.Write([uint32]0); $w.Write($dumpTime); $w.Write([uint64]0)
     foreach ($d in $dir) { $w.Write([uint32]$d[0]); $w.Write([uint32]$d[1]); $w.Write([uint32]$d[2]) }
     & $at 200; $w.Write([uint16]9)
     & $at 300; $w.Write([uint32]24); $w.Write([uint32]3); $w.Write([uint32]4242); $w.Write([uint32]($dumpTime - 3725))
@@ -47,6 +48,9 @@ Describe 'minidump parsing' {
             Assert-Equal 'read from 0x24' $info.Exception.access
             Assert-Equal 77 $info.Exception.threadId
         }
+        It 'reports that a dump without Memory64List stream has no full memory' {
+            Assert-False $info.FullMemory
+        }
         It 'reads module file version and PDB identity' {
             $m = $info.Modules[0]
             Assert-Equal 'inmation.exe' $m.Name
@@ -64,6 +68,14 @@ Describe 'minidump parsing' {
             $e = (Read-MinidumpInfo $p).Exception
             Assert-Equal 7 $e.failFastCode
             Assert-Match '^ABORT' $e.name
+        }
+        finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports full memory when the dump has a Memory64List stream' {
+        $p = Join-Path $env:TEMP "cda-test-$([Guid]::NewGuid().ToString('N')).dmp"
+        try {
+            New-TestMinidump $p 0xC0000005L @(0, 0x24) 'C:\inmation.root\bin\inmation.exe' '26.1.0.9038' $guid -FullMemory
+            Assert-True (Read-MinidumpInfo $p).FullMemory
         }
         finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
     }
