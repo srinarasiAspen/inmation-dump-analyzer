@@ -19,7 +19,7 @@ function Get-PerfHeaderRows($Data) {
     $rows += "| Dump | $dumpText |"
     $rows += "| Build | $($Data.module.name) $($Data.module.fileVersion) |"
     $rows += "| Symbols | $($Data.symbols.loadStatus) ($(Format-PerfCell ([string]$Data.symbols.source))) |"
-    $rows += "| Generated | $($Data.tool) $($Data.toolVersion), $($Data.createdUtc) |"
+    $rows += "| Generated | inmation dump analyzer $($Data.toolVersion), $($Data.createdUtc) |"
     return $rows
 }
 

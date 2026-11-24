@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.3.1
+
+### Plugin metadata
+- Renamed the plugin from `inmation-crash-dump-analyzer` to `inmation-dump-analyzer` (displayed as **inmation dump
+  analyzer**) to reflect both crash analysis and performance-counter analysis.
+- Updated the documentation, installation example and generated crash, performance-counter and correlation report
+  attribution. Specialized agent/skill names, script/configuration filenames, environment variables and storage
+  paths are unchanged for compatibility.
+- Plugin author set to **Bhargava Srinarasi**.
+
+## 1.3.0
+
+### Stage 2: new ADO scope
+- The new ADO search covers work item types `Bug` and `Post Development Bug` (config `ado.workItemTypes`) under the
+  area path `AspenTech SAFe\EOP ART` only (`ado.areaPaths`). The Product Family filter is off by default
+  (`ado.productFamilies: []`); crashes filed as Post Development Bug were not found before.
+- `Search-AdoCrashBugs.ps1` drops fetched work items outside the configured types / area paths (linked duplicates or
+  related items, IDs written by hand): `ADO_OUT_OF_SCOPE=AB#<id> | <reason>`, no comments fetched, no links followed,
+  not in the report.
+- Both stage 2 scripts print `NO_BUGS_FOUND=<letter> | <title> | searched: <scope>` on their final step for each
+  signature without a matching work item. Report section 2 says `**Result:** no bugs found for this crash.` and the
+  header `A: no bugs found` (was "no existing work item with this crash found" / "none found").
+- Agent, skill and `references/new-ado.md`: run the printed queries exactly, never widen the new ADO search (other
+  areas, types, the whole project, extra filters) - also without a dump - and answer "No bugs found" with the
+  searched scope when nothing matches.
+
+## 1.2.0
+
+### Stage 2: old TFS and new ADO
+- New `Search-AdoCrashBugs.ps1`: searches the new ADO (`dev.azure.com/aspentechnology`, project `AspenTech SAFe`)
+  through the `azure-devops` MCP server that Nexus installs into the workspace. The script detects the server in
+  `.vscode/mcp.json`, prints one WIQL query per crash term (Bugs with Product Family `Inmation Data Platform` or
+  `AspenTech Inmation`, config `ado`), and the work items to fetch; the agent runs the MCP read tools and saves the
+  results; the script ranks, picks the candidates (and their duplicate / related links), computes the pre-verdicts and
+  writes `ado-<id>.md`, `ado-search.json` and `ado-verification.json`. Without Nexus the new ADO is skipped and the
+  report says so; `-Skip '<reason>'` records a failed MCP sign-in.
+- `Search-TfsCrashBugs.ps1 -Auto` still searches the old TFS, then prints `NEXUS_ADO=` and the new ADO step as
+  `NEXT_STEP=`. A `TFS_ERROR` no longer ends stage 2: it is recorded (`tfs-status.json`) and the new ADO is searched.
+- Report section 2 is rendered from both sources (`lib/Stage2Report.ps1`): `#<id>` old TFS, `AB#<id>` new ADO. Items
+  migrated from the old TFS are listed from both. `Test-CrashReport.ps1` reports an unfinished new ADO search.
+- `Complete-CrashReport.ps1` confirms `2<letter> AB#<id>` items (`ado-<id>.md`); a rejected Result item names another
+  item of the signature that was confirmed.
+- Stage 3 reads linked fixes from both sources and resolves GitHub pull requests (`(#<n>)`, `Merge pull request #<n>`)
+  and GitHub commit links.
+- `Test-AnalyzerSetup.ps1` checks the Nexus `azure-devops` MCP server (`CHECK=nexus-ado`).
+- Shared work item code moved to `lib/WorkItems.ps1`; the agent gets the `azure-devops/*` MCP tools (read tools only).
+
 ## 1.1.0
 
 ### Performance counters (new agent `perf-counter-analyzer`, skill `perf-counter-analysis`)

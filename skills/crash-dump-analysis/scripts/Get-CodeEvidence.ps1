@@ -12,7 +12,8 @@ verified symbols it:
      build commit with the faulting line marked, finds the same function on the analysis ref, and reports whether the
      faulting line is unchanged, changed or gone, with the diff of the function.
   3. Lists the commits on the analysis ref that touched the function since the build (git log -L).
-  4. Checks the commits and pull requests linked to matching TFS work items (tfs-verification.json from stage 2):
+  4. Checks the commits and pull requests (Azure Repos 'Merged PR <n>' and GitHub '#<n>') linked to matching work items
+     of the old TFS and the new ADO (tfs-verification.json / ado-verification.json from stage 2):
      present locally, on the analysis ref, contained in the crashed build, touching the crashing files, release branches
      and tags containing them.
   5. Release builds only: whether the version branch and newer release branches contain the fix (also by subject, for
@@ -46,8 +47,10 @@ if (-not $repo) {
 $ownModules = @((Get-Cfg $config 'binaries' $null).PSObject.Properties | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) })
 
 $tfsData = @()
-$tfsPath = Join-Path $runDir 'tfs-verification.json'
-if (Test-Path -LiteralPath $tfsPath) { $tfsData = @((Get-Content -LiteralPath $tfsPath -Raw -Encoding UTF8 | ConvertFrom-Json) | ForEach-Object { $_ }) }
+foreach ($name in 'tfs-verification.json', 'ado-verification.json') {
+    $p = Join-Path $runDir $name
+    if (Test-Path -LiteralPath $p) { $tfsData += @((Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json) | ForEach-Object { $_ } | Where-Object { $_ }) }
+}
 
 function Get-Short([string]$Sha) { if ($Sha) { return $Sha.Substring(0, [Math]::Min(10, $Sha.Length)) } return '' }
 
@@ -244,23 +247,28 @@ foreach ($g in @(Get-Prop $summary 'groups')) {
 
     # Linked fixes from stage 2.
     $commitFacts = @()
-    $tfsSig = $tfsData | Where-Object { (Get-Prop $_ 'signature') -eq $sig } | Select-Object -First 1
-    $matchedItems = @(if ($tfsSig) { @(Get-Prop $tfsSig 'items') | Where-Object { (Get-Prop $_ 'verdict') -match '^(same|likely same)' } })
+    $matchedItems = @($tfsData | Where-Object { (Get-Prop $_ 'signature') -eq $sig } | ForEach-Object { @(Get-Prop $_ 'items') } | Where-Object { $_ -and (Get-Prop $_ 'verdict') -match '^(same|likely same)' })
     $versionBranch = [string](Get-Prop $build 'branch')
     if ($matchedItems.Count) {
         & $add ''
-        & $add '### Fixes linked to matching TFS work items'
+        & $add '### Fixes linked to matching TFS / ADO work items'
         foreach ($it in $matchedItems) {
+            $ref = [string](Get-Prop $it 'ref'); if (-not $ref) { $ref = "#$(Get-Prop $it 'id')" }
             & $add ''
-            & $add "#$(Get-Prop $it 'id') $(Get-Prop $it 'title') - $(Get-Prop $it 'verdict'), $(Get-Prop $it 'state') ($(Get-Prop $it 'reason'))"
-            $shas = @(Get-Prop $it 'commits')
-            foreach ($pr in @(Get-Prop $it 'pullRequests')) {
+            & $add "$ref $(Get-Prop $it 'title') - $(Get-Prop $it 'verdict'), $(Get-Prop $it 'state') ($(Get-Prop $it 'reason'))"
+            $shas = @(Get-Prop $it 'commits' | Where-Object { $_ })
+            foreach ($pr in @(Get-Prop $it 'pullRequests' | Where-Object { $_ })) {
                 $merge = (Invoke-Git $repo @('log', '--all', '-F', "--grep=Merged PR $($pr):", '--format=%H', '-n', '1')).Lines | Select-Object -First 1
                 if ($merge) { $shas += $merge } else { & $add "- Pull request ${pr}: no 'Merged PR $pr' commit in this repository (other repository, or not fetched)" }
             }
+            # GitHub: squash merges end with '(#<n>)', merge commits start with 'Merge pull request #<n> '.
+            foreach ($pr in @(Get-Prop $it 'githubPullRequests' | Where-Object { $_ })) {
+                $merge = (Invoke-Git $repo @('log', '--all', '-F', "--grep=(#$pr)", "--grep=Merge pull request #$pr ", '--format=%H', '-n', '1')).Lines | Select-Object -First 1
+                if ($merge) { $shas += $merge } else { & $add "- GitHub pull request #${pr}: no '(#$pr)' / 'Merge pull request #$pr' commit in this repository (other repository, or not fetched)" }
+            }
             foreach ($sha in @($shas | Select-Object -Unique)) {
                 $ce = Get-CommitEvidence $sha $buildCommit $refCommit $crashFiles $versionBranch
-                $commitFacts += [pscustomobject]@{ Item = (Get-Prop $it 'id'); Evidence = $ce }
+                $commitFacts += [pscustomobject]@{ Item = $ref; Evidence = $ce }
                 if (-not $ce.known) { & $add "- Commit ``$(Get-Short $sha)``: not in this repository (fetch, or it belongs to another repository)"; continue }
                 & $add "- Commit ``$(Get-Short $ce.sha)`` $($ce.date) $($ce.author): $($ce.subject)"
                 & $add "  - on ${refName}: $(Format-YesNo $ce.onRef); contained in the crashed build: $(Format-YesNo $ce.inBuild); touches the crashing files: $(Format-YesNo $ce.touchesCrashFiles)"
@@ -284,7 +292,7 @@ foreach ($g in @(Get-Prop $summary 'groups')) {
         }
     }
     elseif ($tfsData.Count) { & $add ''; & $add '_Stage 2 found no matching work item with a linked fix for this signature._' }
-    else { & $add ''; & $add '_Stage 2 results (tfs-verification.json) not found: linked fixes were not checked._' }
+    else { & $add ''; & $add '_Stage 2 results (tfs-verification.json / ado-verification.json) not found: linked fixes were not checked._' }
 
     # Report section drafts: facts filled, decisions as placeholders.
     $lines3 = @("### Signature $letter - $title", '', '_Evidence generated by Get-CodeEvidence.ps1 - details, function text and diffs in code-evidence.md._', '')
@@ -293,7 +301,7 @@ foreach ($g in @(Get-Prop $summary 'groups')) {
         $lines3 += "- ``$(Get-CompactFunctionName $ff.Target.function)`` ($($ff.Evidence.path):$($ff.Evidence.line)): **$($ff.Evidence.status)** on $refName$(if (@($ff.Evidence.commits).Count) { "; $(@($ff.Evidence.commits).Count) commit(s) changed it since the build, newest: $(@($ff.Evidence.commits)[0])" })"
     }
     foreach ($cf in @($commitFacts | Where-Object { $_.Evidence.known })) {
-        $lines3 += "- Linked fix of #$($cf.Item): ``$(Get-Short $cf.Evidence.sha)`` - on $refName $(Format-YesNo $cf.Evidence.onRef), in the crashed build $(Format-YesNo $cf.Evidence.inBuild), touches the crashing files $(Format-YesNo $cf.Evidence.touchesCrashFiles)"
+        $lines3 += "- Linked fix of $($cf.Item): ``$(Get-Short $cf.Evidence.sha)`` - on $refName $(Format-YesNo $cf.Evidence.onRef), in the crashed build $(Format-YesNo $cf.Evidence.inBuild), touches the crashing files $(Format-YesNo $cf.Evidence.touchesCrashFiles)"
     }
     $lines3 += ''
     if ($channel -eq 'dev') {
@@ -309,7 +317,7 @@ foreach ($g in @(Get-Prop $summary 'groups')) {
     $lines4 = @("### Signature $letter")
     if ($channel -eq 'dev') { $lines4 += '', 'n/a - dev build (root cause on the latest code instead).' }
     else {
-        $cands = @($commitFacts | Where-Object { $_.Evidence.known -and $_.Evidence.onRef } | ForEach-Object { "``$(Get-Short $_.Evidence.sha)`` $($_.Evidence.subject) (linked from #$($_.Item))" })
+        $cands = @($commitFacts | Where-Object { $_.Evidence.known -and $_.Evidence.onRef } | ForEach-Object { "``$(Get-Short $_.Evidence.sha)`` $($_.Evidence.subject) (linked from $($_.Item))" })
         $cands += @($functionFacts | ForEach-Object { @($_.Evidence.commits | Select-Object -First 5) } | ForEach-Object { "``$(($_ -split ' ')[0])`` $((($_ -split '\| ', 2)[1]))" })
         $cands = @($cands | Select-Object -Unique)
         $lines4 += '', "Candidates (verify each with ``git show <sha> -- <file>``): $(if ($cands.Count) { '' } else { 'none found' })"

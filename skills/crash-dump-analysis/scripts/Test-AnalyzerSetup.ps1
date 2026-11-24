@@ -21,7 +21,7 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-foreach ($lib in 'Common', 'Cdb', 'BuildLookup', 'TfsAuth', 'Frames', 'LinuxCore') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
+foreach ($lib in 'Common', 'Cdb', 'BuildLookup', 'TfsAuth', 'Frames', 'LinuxCore', 'NexusAdo') { . (Join-Path $PSScriptRoot "lib\$lib.ps1") }
 
 $script:failures = 0
 function Write-Check([string]$Name, [string]$State, [string]$Detail) {
@@ -112,9 +112,17 @@ if (-not $SkipNetwork) {
         $status = $null
         if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
         $hint = switch ($status) { 401 { 'authentication failed: sign in with a domain account, or set TFS_PAT / ~/.config/inmation-ado/.env' } 403 { 'access denied to the project' } default { "not reachable: $($_.Exception.Message)" } }
-        Write-Check 'tfs' 'WARN' "$url ($($auth.Mode)) - $hint. Stage 2 will not work."
+        Write-Check 'tfs' 'WARN' "$url ($($auth.Mode)) - $hint. The old TFS search of stage 2 will not work."
     }
 }
+
+# The new ADO is searched by the agent through the azure-devops MCP server of a Nexus installation in the workspace.
+try {
+    $nexus = Find-NexusAdo (Get-WorkspaceRoots $RepoPath $null) (Get-Cfg $config 'ado' $null)
+    if ($nexus.Available) { Write-Check 'nexus-ado' 'OK' "$($nexus.OrgUrl) project $($nexus.Project) via MCP server '$($nexus.Server)' ($($nexus.McpJson)$(if (-not $nexus.Nexus) { '; no Nexus agents found' }))" }
+    else { Write-Check 'nexus-ado' 'WARN' "$($nexus.Problem) - stage 2 searches only the old TFS. Install Nexus in the workspace (setup-vscode-nexus-agents.js) to search the new ADO too." }
+}
+catch { Write-Check 'nexus-ado' 'WARN' $_.Exception.Message }
 
 $gdbProblem = Test-WslGdb $config
 if ($gdbProblem) { Write-Check 'linux-gdb' 'WARN' "$gdbProblem - only needed for Linux core dumps" }

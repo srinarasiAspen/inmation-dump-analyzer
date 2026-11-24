@@ -3,6 +3,8 @@
 . (Join-Path $script:LibRoot 'Symbols.ps1')
 . (Join-Path $script:PerfLibRoot 'PerfData.ps1')
 . (Join-Path $script:PerfLibRoot 'PerfChart.ps1')
+. (Join-Path $script:PerfLibRoot 'PerfReport.ps1')
+. (Join-Path $script:PerfLibRoot 'PerfCorrelationReport.ps1')
 
 $perfNames = @{ [int64]72 = 'MODEL_PERF_CPU'; [int64]145 = 'MODEL_PERF_MEMORYLOAD'; [int64]146 = 'MODEL_PERF_INMATIONMEMORYUSAGE'; [int64]111 = 'MODEL_PERF_TIMESERIESLOAD'; [int64]222 = 'MODEL_PERF_NUMBERACTIVETHREADS' }
 $parsed = ConvertFrom-PerfDumpOutput (Get-Fixture 'cdb-perfdump.txt')
@@ -203,5 +205,34 @@ Describe 'perf output files' {
             Assert-Equal 'PNG' ([Text.Encoding]::ASCII.GetString($bytes, 1, 3))
         }
         finally { Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'dump analyzer performance report attribution' {
+    $core = [ordered]@{ path = '/System/Core'; className = 'CORE'; address = '0x1725f89fdc0'; counterCount = $counters.Count; counters = $counters }
+    $data = [ordered]@{
+        tool = 'perf-counter-analyzer'; toolVersion = 'test-version'; createdUtc = '2026-10-29T09:42:39Z'
+        objects = @($core); warnings = @()
+        module = [ordered]@{ name = 'inmation.exe'; fileVersion = '26.1.0.9038' }
+        dump = [ordered]@{ path = 'C:\d\inmation.exe.1.dmp'; dumpTimeUtc = '2026-10-29T09:42:39Z'; processId = 1; uptime = '01:00:00' }
+        symbols = [ordered]@{ loadStatus = 'private pdb symbols'; source = 'local cache' }
+    }
+    It 'uses the plugin name when re-rendering existing performance data, preserving its version and time' {
+        $selected = @([pscustomobject]@{ Object = $core; Counter = $counters[0]; Chart = $null })
+        $md = New-PerfReportMarkdown $data $selected 'C:\run'
+        Assert-Match '\| Generated \| inmation dump analyzer test-version, 2026-10-29T09:42:39Z \|' $md
+        Assert-NotMatch '\| Generated \| perf-counter-analyzer' $md
+    }
+    It 'attributes correlation reports to the plugin and preserves the tool version' {
+        $result = [pscustomobject]@{
+            Datasets = @([pscustomobject]@{ Data = $data; Path = 'C:\run\perf-data.json' })
+            Objects = @([pscustomobject]@{ label = '/System/Core'; className = 'CORE' })
+            Counters = @('CPU'); Against = @(); Usable = @(); Pairs = @(); Top = @()
+            Timebases = @('minute'); MinPoints = 8; MaxLag = 3; Aggregate = 'avg'; ToolVersion = 'test-version'
+            Warnings = @(); Heatmap = $null; Anomalies = @(); Excluded = @()
+        }
+        $md = New-CorrelationReportMarkdown $result 'C:\run'
+        Assert-Match '\| Generated \| inmation dump analyzer test-version, \d{4}-\d{2}-\d{2}T' $md
+        Assert-NotMatch '\| Generated \| perf-counter-analyzer' $md
     }
 }

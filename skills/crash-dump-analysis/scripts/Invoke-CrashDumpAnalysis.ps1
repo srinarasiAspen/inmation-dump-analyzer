@@ -573,7 +573,7 @@ $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Enc
 # Report draft (header + section 1) and chat summary, rendered from the summary as written.
 $summaryData = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
-[IO.File]::WriteAllText($reportPath, (New-CrashReportMarkdown $summaryData "crash-dump-analyzer $(Get-ToolVersion $PSScriptRoot)"), $utf8NoBom)
+[IO.File]::WriteAllText($reportPath, (New-CrashReportMarkdown $summaryData "inmation dump analyzer $(Get-ToolVersion $PSScriptRoot)"), $utf8NoBom)
 $chatSummaryPath = Join-Path $runDir 'chat-summary.md'
 [IO.File]::WriteAllText($chatSummaryPath, (New-ChatSummaryMarkdown $summaryData $reportPath), $utf8NoBom)
 

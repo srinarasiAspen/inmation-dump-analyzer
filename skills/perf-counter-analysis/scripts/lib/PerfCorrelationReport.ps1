@@ -52,7 +52,7 @@ function New-CorrelationReportMarkdown($Result, [string]$ReportDir) {
     $against = if ($Result.Against.Count) { " against ``$($Result.Against -join ', ')``" } else { ' (all pairs among them)' }
     [void]$sb.AppendLine("| Requested | ``$($Result.Counters -join ', ')``$against |")
     [void]$sb.AppendLine("| Compared | $($Result.Usable.Count) counters, $($Result.Pairs.Count) pairs; timebases $($Result.Timebases -join ', '); at least $($Result.MinPoints) common complete buckets; lags up to $($Result.MaxLag) buckets |")
-    [void]$sb.AppendLine("| Generated | perf-counter-analyzer $($Result.ToolVersion), $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')) |")
+    [void]$sb.AppendLine("| Generated | inmation dump analyzer $($Result.ToolVersion), $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')) |")
     foreach ($w in $Result.Warnings) { [void]$sb.AppendLine("| Warning | $(Format-PerfCell $w) |") }
     [void]$sb.AppendLine()
     [void]$sb.AppendLine(($script:CorrelationHowTo -f $Result.Aggregate))

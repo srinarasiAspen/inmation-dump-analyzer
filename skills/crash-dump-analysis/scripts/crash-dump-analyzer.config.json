@@ -98,6 +98,21 @@
     "maxHitsPerTerm": 200,
     "top": 15
   },
+  "ado": {
+    "mcpPackage": "@azure-devops/mcp",
+    "userMcpConfig": true,
+    "organizationUrl": "",
+    "project": "",
+    "workItemTypes": [ "Bug", "Post Development Bug" ],
+    "productFamilyField": "Product Family",
+    "productFamilies": [],
+    "areaPaths": [ "AspenTech SAFe\\EOP ART" ],
+    "titleFields": [ "System.Title" ],
+    "textFields": [ "Microsoft.VSTS.TCM.ReproSteps", "System.Description", "Microsoft.VSTS.TCM.SystemInfo", "System.History" ],
+    "maxFrameTerms": 6,
+    "maxHitsPerTerm": 50,
+    "top": 15
+  },
   "git": {
     "remote": "origin",
     "fetch": true,

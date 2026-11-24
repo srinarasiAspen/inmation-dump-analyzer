@@ -12,13 +12,13 @@ added). Stages 2 and 3 replace their own sections in the same file; `Complete-Cr
 | Binary | file version, product line, dev/release build, brand, build time |
 | Symbols | PDB GUID verified, load status, source; blocked dumps: "not verified - see Blocked dumps" |
 | Stages done | 1 crash summary[, 2 TFS search][, 3 code analysis] |
-| Existing work item | A: #<id> <title> (<same/likely same>, <state>/<reason>) / A: none found |
+| Existing work item | A: #<id> (old TFS) or AB#<id> (new ADO) <title> (<same/likely same>, <state>/<reason>) / A: no bugs found |
 | Build commit | <sha10> (<confidence>, <method>; consistent with the PDB source line) |
 | Compared against | <analysis ref> @ <sha10> |
 | Verdict | Release: Fixed in <sha10> / Fixed - related risk remains / Still present / Inconclusive. Dev: Root cause identified / Hypothesis (<confidence>). Blocked: pending PDB |
 
 ## 1. Crashing call stack        (stage 1, script)
-## 2. Existing TFS work items    (stage 2, script + your confirmation)
+## 2. Existing TFS work items    (stage 2, scripts: old TFS #<id> and new ADO AB#<id> + your confirmation)
 ## 3. Does the problem still exist?   (stage 3, script facts + your verdict)
 ## 4. Fixing commit              (stage 3, release builds; "n/a - dev build" for dev builds)
 ## 5. Root cause                 (stage 3, your analysis)

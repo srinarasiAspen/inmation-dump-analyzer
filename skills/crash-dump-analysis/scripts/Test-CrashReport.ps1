@@ -46,6 +46,7 @@ if ($Stage -contains 2) {
     $header = [string](Get-ReportHeaderValue $ReportPath 'Existing work item')
     if ($header -match 'to confirm') { $issues.Add("Header 'Existing work item' still has an unconfirmed pre-verdict ('to confirm'): read the work item file and replace it with same / likely same / related / different.") }
     if ($body -match '\*\*Result:\*\*[^\r\n]*to confirm') { $issues.Add("A 'Result' line in section 2 still says 'to confirm': confirm or correct the verdict after reading the work item.") }
+    if ($body -match '_New ADO search pending:') { $issues.Add("Section 2: the new ADO search (Nexus azure-devops MCP) is not finished: run Search-AdoCrashBugs.ps1 -SummaryJson <summary.json> and follow its NEXT_STEP until it prints the Complete-CrashReport step, or record why it cannot run with -Skip '<reason>'.") }
 }
 if ($Stage -contains 3) {
     foreach ($n in 3..5) {

@@ -1,4 +1,4 @@
-# How the scripts work
+# inmation dump analyzer: how the scripts work
 
 Reference for maintainers and for anyone who wants to run the scripts without the agent. The agent and skill use only
 the `KEY=value` lines the scripts print; this document explains what is behind them.
@@ -8,12 +8,13 @@ the `KEY=value` lines the scripts print; this document explains what is behind t
 | Script | Stage | Purpose |
 |---|---|---|
 | `Invoke-CrashDumpAnalysis.ps1` | 1 | Collector: Windows minidumps (cdb) and Linux cores (gdb in WSL) -> `summary.json`, `digest.md`, report, chat summary |
-| `Search-TfsCrashBugs.ps1` | 2 | TFS full-text search per signature; `-Auto` fetches candidates, pre-verdicts them and fills report section 2 |
+| `Search-TfsCrashBugs.ps1` | 2 | Old TFS full-text search per signature; `-Auto` fetches candidates, pre-verdicts them, renders report section 2 and detects Nexus for the new ADO step |
+| `Search-AdoCrashBugs.ps1` | 2 | New ADO search through the Nexus `azure-devops` MCP: prints the WIQL queries and work items for the agent to fetch, reads back what it saved, pre-verdicts the candidates and re-renders section 2 with both sources |
 | `Get-CodeEvidence.ps1` | 3 | Build commit, faulting function at build vs. latest code, commits and linked fixes -> `code-evidence.md`, report sections 3-5 with placeholders |
 | `Test-CrashReport.ps1` | 2, 3 | Report linter: `REPORT_ISSUE=` per unfinished part, `REPORT_OK` when done |
 | `Complete-CrashReport.ps1` | 2, 3 | Lists the open items (pre-verdicts to confirm, `_analyst` placeholders, Verdict), writes an answers template, applies the answers to the report and runs the linter - the model never edits the report itself |
 | `Invoke-DumpQuery.ps1` | any | Read-only cdb/gdb queries against a dump of a run with the run's verified symbols |
-| `Test-AnalyzerSetup.ps1` | - | Machine check: cdb, config, folders, source repository, shares, TFS, WSL/gdb, docker |
+| `Test-AnalyzerSetup.ps1` | - | Machine check: cdb, config, folders, source repository, shares, TFS, Nexus / new ADO, WSL/gdb, docker |
 
 ## Product lines and build types
 
@@ -37,7 +38,7 @@ The collector writes `<dump>.crash-report.md` next to the dump. For a folder it 
 
 - Windows with *Debugging Tools for Windows* (`cdb.exe`, part of the Windows SDK).
 - Read access to the release shares and the dev build share (see `productLines`), or the matching PDB (next to the dump, inside its zip, or `-PdbPath`).
-- Stage 2: read access to the TFS project in the config's `tfs` section - a domain account (Windows integrated authentication) or a PAT in `TFS_PAT` / `SOURCE_ADO_PAT` or `~/.config/inmation-ado/.env`.
+- Stage 2: read access to the TFS project in the config's `tfs` section - a domain account (Windows integrated authentication) or a PAT in `TFS_PAT` / `SOURCE_ADO_PAT` or `~/.config/inmation-ado/.env`. For the new ADO: Nexus installed in the workspace (its `azure-devops` MCP server in `.vscode/mcp.json`), signed in through that server; without it only the old TFS is searched.
 - Stage 3: a clone of the inmation server repository with the `origin` remote; the script runs `git fetch` unless `-SkipFetch` is passed. Without a clone (for example a support engineer's machine with only this plugin), the collector runs in **no-source mode**: the crash data is complete, but the build commit is only taken from `build_info.txt` (not verified), and source lines, file history and vcpkg port details are skipped. It prints `SOURCE_AVAILABLE=false` and the digest says "Source: not available". `-NoSource` forces this mode.
 
 ## Running the collector directly
@@ -84,7 +85,46 @@ Output goes to `%LOCALAPPDATA%\inmation-crash-analysis\runs\<timestamp>\`:
 
 Read-only: the only POST is the WIQL query endpoint; nothing is created or changed. For every signature with verified symbols the script takes the identifiers of the asserted expression and the function names of the first meaningful frames (reporting frames such as `abort`, MSVC C++ exception-dispatch frames such as `__CxxFrameHandler4` / `FindHandler`, the Lua VM, OS and `std::` frames are skipped; short generic method names are qualified with their class) and runs one full-text query per term over the configured title and text fields. Candidates are ranked by matched terms - earlier frames and rarer terms weigh more; terms with more than `maxHitsPerTerm` hits are reported as too generic and not scored. A signature without any distinctive frame (e.g. `std::terminate` in a minidump whose unwind stopped in the exception dispatch) is not searched and printed as `NO_DISTINCTIVE_TERMS=<signature>`; rerun it with `-Signature` and `-Term`. `-Id` and `-Term` accept a comma-separated list, also when the script is started with `powershell -File` (which passes `-Id 1,2` as one string). Results go to `tfs-search.md` / `tfs-search.json` next to `summary.json`; `-Id` writes `tfs-<id>.md`. A ranking is only a pointer: the agent reads the candidates and decides same / likely same / related / different.
 
-Authentication uses a PAT from `SOURCE_ADO_PAT` / `TFS_PAT` or `~/.config/inmation-ado/.env` (the same as the `inmation-ado-*` skills), otherwise the Windows account of the current user. Errors are printed as `TFS_ERROR=<message>` with exit code 2; credentials are never printed.
+Authentication uses a PAT from `SOURCE_ADO_PAT` / `TFS_PAT` or `~/.config/inmation-ado/.env` (the same as the `inmation-ado-*` skills), otherwise the Windows account of the current user. Errors are printed as `TFS_ERROR=<message>` with exit code 2; credentials are never printed. With `-Auto` a failure is also recorded (`tfs-status.json`) and shown in report section 2, and the new ADO step still follows.
+
+## Searching the new ADO (stage 2, Nexus)
+
+Bugs filed since the move to Azure DevOps Services, and bugs migrated from the old TFS, live in the new ADO
+(`dev.azure.com/aspentechnology`, project `AspenTech SAFe`). The scripts cannot authenticate there; the `azure-devops`
+MCP server that Nexus installs into a workspace (`.vscode/mcp.json`, package `@azure-devops/mcp`, interactive sign-in)
+can. So the agent makes the MCP calls and `Search-AdoCrashBugs.ps1` makes every decision:
+
+```powershell
+.\skills\crash-dump-analysis\scripts\Search-AdoCrashBugs.ps1 -SummaryJson <run>\summary.json [-WorkspacePath <workspace with Nexus>] [-Signature <text>] [-Skip '<reason>']
+```
+
+Run it again after each step; it continues where the files in `<run>\ado\` say it is:
+
+1. **Detect**: the first `@azure-devops/mcp` server in `.vscode/mcp.json` of `-WorkspacePath`, the current directory, its
+   git root or the run's source repository (then the VS Code user `mcp.json`, unless `ado.userMcpConfig` is false).
+   Organization from the server arguments or `AZURE_DEVOPS_ORG_URL`, project from `AZURE_DEVOPS_PROJECT` (or
+   `ado.organizationUrl` / `ado.project`); the server must enable the `work-items` domain. `NEXUS_ADO=` reports it;
+   without it the script records "not installed" and prints the confirmation step.
+2. **Queries**: one WIQL per crash term (the same terms as the old TFS search), restricted to `ado.workItemTypes`
+   (`Bug`, `Post Development Bug`), `ado.areaPaths` (`UNDER 'AspenTech SAFe\EOP ART'`) and the optional
+   `ado.productFamilies` (empty: no filter). Printed as `ADO_QUERY=<key> | <WIQL>`; the agent runs them with `wit_query`
+   (action `wiql`, `top` = `maxHitsPerTerm` + 1) and writes the IDs into `ado\query-results.md` (`## <key>` + IDs,
+   `none` or `too many`). A changed query set (config or summary) starts a new results file; the old one is kept.
+3. **Fetch**: candidates are ranked and selected like in the old TFS search (`Get-SearchEntry`,
+   `Select-CandidatesToVerify`); `ADO_FETCH=<id> | <file>` asks for `wit_work_item` (action `get`, expand `Relations`)
+   saved unchanged as `ado\ado-<id>.json`, `ADO_FETCH_COMMENTS=` for `list_comments` when `System.CommentCount` > 0.
+   Items linked to a strong match as duplicate / related are fetched in the next round. The saved text may keep the
+   MCP's spotlight delimiters or a code fence; a broken file is reported as `ADO_FETCH_INVALID=`. A fetched item whose
+   type or area path is outside the configured scope (a linked item, a wrong ID) is dropped
+   (`Get-AdoOutOfScopeReason`, `ADO_OUT_OF_SCOPE=AB#<id> | <reason>`): no comments, no links followed, not in the report.
+4. **Result**: `ado-<id>.md` (same layout and match evidence as `tfs-<id>.md`), `ado-search.json`,
+   `ado-verification.json` (same schema as `tfs-verification.json`, plus `ref`, `source`, `githubPullRequests`),
+   `PRE_VERDICT=AB#<id> | ...`, `CONFIRM_ITEM=`, and report section 2 re-rendered with both sources.
+   `NO_BUGS_FOUND=<letter> | <title> | searched: <sources and scope>` for each signature without a matching work item
+   in any searched source (the report says `**Result:** no bugs found for this crash.` and `A: no bugs found`).
+
+`-Skip '<reason>'` records why the new ADO was not searched (for example a failed MCP sign-in). Work items that exist
+in both systems (migrated) are listed from both; there is no de-duplication. Nothing is written to ADO.
 
 ## Configuration (`crash-dump-analyzer.config.json`)
 
@@ -116,6 +156,7 @@ Override the location with `-ConfigPath` or the `CRASH_DUMP_ANALYZER_CONFIG` env
 | `git.branchPatterns` | Candidates for the version branch of a build. |
 | `git.versionCommitMessage` | Message of a version-bump commit that marks the exact build source. |
 | `tfs` | Stage 2 search: `url` (collection URL), `project`, `apiVersion`, `workItemTypes`, `titleFields` (substring match), `textFields` (full-text match), `maxFrameTerms` (frame functions per signature), `maxHitsPerTerm` (more hits = too generic), `top` (candidates listed per signature). |
+| `ado` | Stage 2 new ADO search through the Nexus MCP: `mcpPackage` (MCP package that identifies the server), `userMcpConfig` (also look at the VS Code user `mcp.json`), `organizationUrl` / `project` (empty = from `mcp.json`), `workItemTypes` (default `Bug`, `Post Development Bug`), `productFamilyField` and `productFamilies` (WIQL `IN` filter; empty list = no filter, the default), `areaPaths` (`UNDER` filter, default `AspenTech SAFe\EOP ART`; fetched items outside the types or areas are dropped), `titleFields`, `textFields`, `maxFrameTerms`, `maxHitsPerTerm` (the WIQL `top` is this + 1), `top`. |
 
 ## Limitations
 
@@ -148,14 +189,20 @@ shared. Details, prerequisites and the meaning of signals:
 `Search-TfsCrashBugs.ps1 -SummaryJson <summary.json> -Auto` runs the search, then for each signature fetches the
 strongest candidates (`Select-CandidatesToVerify`) and the items linked to them as duplicates/related, writes
 `tfs-<id>.md` with the full text and a match-evidence table, and computes a pre-verdict (`same (to confirm)`,
-`likely same`, `related`, `different`) from the frames, exception kind and own-caller match. It fills report section 2
-and prints `PRE_VERDICT=`, `CONFIRM_ITEM=<file>` (to be confirmed by the agent) and `REPORT_UPDATED=`.
+`likely same`, `related`, `different`) from the frames, exception kind and own-caller match. It writes
+`tfs-verification.json` and `tfs-status.json` and renders report section 2 from the files of both sources
+(`lib/Stage2Report.ps1`: old TFS `#<id>`, new ADO `AB#<id>`; equal pre-verdicts list the new ADO item first, a pending
+new ADO search leaves a `_New ADO search pending:` line that `Test-CrashReport.ps1` reports). It prints `PRE_VERDICT=`,
+`NEXUS_ADO=`, `REPORT_UPDATED=` and either `NEXT_STEP=` for the new ADO search or `NO_BUGS_FOUND=` (signatures
+without a matching work item), `CONFIRM_ITEM=<file>` (to be confirmed by the agent) and `NEXT_STEP=` for
+`Complete-CrashReport.ps1`.
 
 ## Stage 3 evidence pack
 
 `Get-CodeEvidence.ps1 -SummaryJson <summary.json>` writes `code-evidence.md`: build commit and confidence, the faulting
 functions at the build commit and on the analysis ref (with a diff and status: unchanged / changed / removed),
-`git log -L` commits in between, fixes linked from TFS (incl. PR merge commits), the branches and tags that contain
+`git log -L` commits in between, fixes linked from the old TFS and the new ADO (incl. PR merge commits: `Merged PR <n>`
+for Azure Repos, `(#<n>)` / `Merge pull request #<n>` for GitHub), the branches and tags that contain
 them (backports/cherry-picks), and the fix diff for the crashing files. Sections 3-5 of the report get the facts and
 `_analyst: ..._` placeholders that the agent replaces; `Test-CrashReport.ps1` finds leftovers.
 
@@ -172,6 +219,10 @@ them (backports/cherry-picks), and the fix diff for the crashing files. Sections
 
 User overrides: `%LOCALAPPDATA%\inmation-crash-analysis\config.json` is merged over the plugin's config (only the keys it
 contains), so an update of the plugin keeps local settings.
+
+The plugin identifier is `inmation-dump-analyzer`. The existing `crash-dump-analyzer.config.json`,
+`CRASH_DUMP_ANALYZER_*` environment variables and `inmation-crash-analysis` storage paths are retained for
+compatibility; both skills still use the same configuration and caches.
 
 ## Performance counters (perf-counter-analysis skill)
 

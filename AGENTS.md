@@ -1,6 +1,6 @@
 # Contributor guide (humans and coding agents)
 
-This repository is an agent plugin: [plugin.json](plugin.json), the agents in [agents/](agents), the
+This repository contains the **inmation dump analyzer** agent plugin: [plugin.json](plugin.json), the agents in [agents/](agents), the
 `crash-dump-analysis` skill with its PowerShell scripts in [skills/crash-dump-analysis/](skills/crash-dump-analysis), and
 the `perf-counter-analysis` skill in [skills/perf-counter-analysis/](skills/perf-counter-analysis), which reuses the
 crash skill's `scripts/lib` (configuration, PDB lookup, cdb).
@@ -25,7 +25,9 @@ moving the decision into a script (with a test) over adding more prose to the sk
 - **Console output keys** read by the skill/agent: `REPORT_PATH`, `SUMMARY_JSON`, `DIGEST_MD`, `CHAT_SUMMARY`,
   `SOURCE_AVAILABLE`, `STAGE2_COMMAND`, `STAGE3_COMMAND`, `BLOCKED_DUMP`, `EXTRACTED_DIR`, `PRE_VERDICT`, `CONFIRM_ITEM`,
   `REPORT_UPDATED`, `TFS_ERROR`, `CODE_EVIDENCE_MD`, `NEXT_STEP`, `REPORT_ISSUE`, `REPORT_OK`, `QUERY_*`, `CHECK`,
-  `SETUP_OK`; perf skill: `PERF_RESULT`, `PERF_*`, `CORRELATION_*`, `HEATMAP_PNG`, `NEXT_STEP*`.
+  `SETUP_OK`; new ADO (stage 2): `NEXUS_ADO`, `ADO_PROJECT`, `ADO_QUERY`, `ADO_QUERY_TOP`, `ADO_RESULTS_FILE`,
+  `ADO_FETCH`, `ADO_FETCH_COMMENTS`, `ADO_FETCH_INVALID`, `ADO_OUT_OF_SCOPE`, `NO_BUGS_FOUND`; perf skill: `PERF_RESULT`, `PERF_*`, `CORRELATION_*`,
+  `HEATMAP_PNG`, `NEXT_STEP*`.
   Renaming one means updating the SKILL.md, the agent and the references in the same commit.
 - **summary.json schema**: Windows and Linux entries share it (`dump.platform` tells them apart). Stage 2/3 scripts and
   `Compare-Runs.ps1` read it. Add fields; do not rename. The same holds for `perf-data.json` (read by
@@ -33,7 +35,8 @@ moving the decision into a script (with a test) over adding more prose to the sk
 - **Report sections** (`$script:ReportSections` in `lib/Report.ps1`) and the `_analyst: ..._` placeholder convention
   used by `Test-CrashReport.ps1`.
 - **Read-only**: scripts never modify a repository (only `git fetch`), never write to TFS (only the WIQL POST), never
-  upload anything. `Invoke-DumpQuery.ps1` keeps its block lists for commands that run programs or write files.
+  upload anything. The agent uses only the read tools of the Nexus `azure-devops` MCP server (new ADO).
+  `Invoke-DumpQuery.ps1` keeps its block lists for commands that run programs or write files.
 - **Symbol gate**: no function names, grouping or build commit for a dump without verified symbols (PDB GUID/age or
   GNU build-id). Never relax it.
 

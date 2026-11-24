@@ -133,7 +133,7 @@ function Get-ReportTitle($Summary) {
     return $text
 }
 
-function New-CrashReportMarkdown($Summary, [string]$Generator = 'crash-dump-analyzer') {
+function New-CrashReportMarkdown($Summary, [string]$Generator = 'inmation dump analyzer') {
     $dumps = @(Get-Prop $Summary 'dumps' | Where-Object { Get-Prop $_ 'module' })
     $failed = @(Get-Prop $Summary 'dumps' | Where-Object { -not (Get-Prop $_ 'module') })
     $groups = @(Get-Prop $Summary 'groups')

@@ -9,7 +9,8 @@ Step 1 - list:  Complete-CrashReport.ps1 -ReportPath <report>
   Prints OPEN_ITEM=<key> | <what to write> per open item and writes a new answers file (ANSWERS_FILE=<path>) with one
   '## <key>' heading and a 'TODO: ...' line per item. A new file is written every time (never overwritten).
 Step 2 - answer: replace every TODO line in the answers file (several lines, lists and code blocks are allowed).
-  Stage 2 items ('## 2A #12345'): start with same / likely same / related / different, then ' - ' and the reason.
+  Stage 2 items ('## 2A #12345' old TFS, '## 2A AB#123456' new ADO): start with same / likely same / related /
+  different, then ' - ' and the reason.
   Header rows can be set with '## Verdict', '## Build commit', '## Existing work item', '## Compared against'.
 Step 3 - apply:  Complete-CrashReport.ps1 -ReportPath <report> -AnswersFile <answers file>
   Prints ANSWER_APPLIED=<key> / ANSWER_ISSUE=<text>, updates 'Stages done', then runs Test-CrashReport.ps1
@@ -53,12 +54,13 @@ function Get-OpenItems([string]$Text) {
         if ($line -match '^## (\d)\. ') { $section = [int]$Matches[1]; $letter = ''; continue }
         if ($line -match '^## ') { $section = 0; continue }
         if ($line -match '^### Signature ([A-Z]+)\b') { $letter = $Matches[1]; continue }
-        if ($section -eq 2 -and $letter -and $line -match '^\| \[#(\d+)\]') {
-            $id = $Matches[1]
+        if ($section -eq 2 -and $letter -and $line -match '^\| \[((?:AB)?#)(\d+)\]') {
+            $prefix = $Matches[1]; $id = $Matches[2]
             $cells = Split-TableRow $line
             if ($cells.Count -ge 4 -and $cells[2] -match '^(same \(to confirm\)|likely same)$' -and $cells[3] -notmatch 'confirmed:') {
-                $file = if ($runDir -and (Test-Path -LiteralPath (Join-Path $runDir "tfs-$id.md"))) { Join-Path $runDir "tfs-$id.md" } else { "tfs-$id.md" }
-                $items.Add([pscustomobject]@{ Key = "2$letter #$id"; Kind = 'stage2'; Prompt = "same / likely same / related / different - one sentence why. Read $file (pre-verdict: $($cells[2]))." })
+                $name = if ($prefix -eq 'AB#') { "ado-$id.md" } else { "tfs-$id.md" }
+                $file = if ($runDir -and (Test-Path -LiteralPath (Join-Path $runDir $name))) { Join-Path $runDir $name } else { $name }
+                $items.Add([pscustomobject]@{ Key = "2$letter $prefix$id"; Kind = 'stage2'; Prompt = "same / likely same / related / different - one sentence why. Read $file (pre-verdict: $($cells[2]))." })
             }
             continue
         }
@@ -145,9 +147,10 @@ foreach ($key in @($answers.Keys)) {
     if ($value -match '_analyst:') { $issues.Add("'## $key' still contains '_analyst:'."); continue }
     $header = $headerKeys | Where-Object { $_ -eq $key } | Select-Object -First 1
     if ($header) { $headerAnswers[$header] = $value; continue }
-    if ($key -match '^2([A-Z]+) #(\d+)$') {
+    if ($key -match '^2([A-Z]+) ((?:AB)?#\d+)$') {
+        $letterKey = $Matches[1]; $ref = $Matches[2]
         if ($value -notmatch "(?is)^\s*\**($stage2Verdicts)\**\b\s*[-:,.]?\s*(.*)$") { $issues.Add("'## $key' must start with same / likely same / related / different."); continue }
-        $stage2Answers[$key] = [pscustomobject]@{ Letter = ($key -replace '^2([A-Z]+) .*$', '$1'); Id = ($key -replace '^.*#', ''); Verdict = $Matches[1].ToLowerInvariant(); Reason = ($Matches[2] -replace '\s*\r?\n\s*', ' ').Trim() }
+        $stage2Answers[$key] = [pscustomobject]@{ Letter = $letterKey; Ref = $ref; Verdict = $Matches[1].ToLowerInvariant(); Reason = ($Matches[2] -replace '\s*\r?\n\s*', ' ').Trim() }
         continue
     }
     if (@($open | Where-Object { $_.Kind -eq 'placeholder' -and $_.Key -eq $key }).Count) { $placeholderAnswers[$key] = $value; continue }
@@ -164,8 +167,8 @@ foreach ($line in ($text -split "`r?`n")) {
     elseif ($line -match '^## ') { $section = 0 }
     elseif ($line -match '^### Signature ([A-Z]+)\b') { $letter = $Matches[1] }
     elseif ($section -eq 2 -and $letter) {
-        if ($line -match '^\| \[#(\d+)\]' -and $stage2Answers.ContainsKey("2$letter #$($Matches[1])")) {
-            $a = $stage2Answers["2$letter #$($Matches[1])"]
+        if ($line -match '^\| \[((?:AB)?#\d+)\]' -and $stage2Answers.ContainsKey("2$letter $($Matches[1])")) {
+            $a = $stage2Answers["2$letter $($Matches[1])"]
             $cells = Split-TableRow $line
             if ($cells.Count -ge 4) {
                 $cells[2] = $a.Verdict
@@ -173,10 +176,15 @@ foreach ($line in ($text -split "`r?`n")) {
                 $line = '| ' + ($cells -join ' | ') + ' |'
             }
         }
-        elseif ($line -match '^\*\*Result:\*\*.*\[#(\d+)\]' -and $stage2Answers.ContainsKey("2$letter #$($Matches[1])")) {
-            $a = $stage2Answers["2$letter #$($Matches[1])"]
+        elseif ($line -match '^\*\*Result:\*\*.*?\[((?:AB)?#\d+)\]' -and $stage2Answers.ContainsKey("2$letter $($Matches[1])")) {
+            $a = $stage2Answers["2$letter $($Matches[1])"]
             $line = [regex]::Replace($line, '\*\*(same \(to confirm\)|likely same|same)\*\*', "**$($a.Verdict)**")
-            if ($a.Verdict -in 'related', 'different') { $line += " Judged $($a.Verdict) after reading the work item ($($a.Reason)): no confirmed existing work item for this signature." }
+            if ($a.Verdict -in 'related', 'different') {
+                # Another work item of this signature (e.g. from the other ADO) confirmed as the same bug.
+                $instead = @($stage2Answers.Values | Where-Object { $_.Letter -eq $letter -and $_.Ref -ne $a.Ref -and $_.Verdict -in 'same', 'likely same' } | ForEach-Object { "$($_.Ref) ($($_.Verdict))" })
+                if ($instead.Count) { $line += " Judged $($a.Verdict) after reading the work item ($($a.Reason)). Confirmed instead: $($instead -join ', ')." }
+                else { $line += " Judged $($a.Verdict) after reading the work item ($($a.Reason)): no confirmed existing work item for this signature." }
+            }
         }
     }
     elseif ($section -ge 3) {
@@ -202,8 +210,8 @@ function Set-HeaderRow([string]$Text, [string]$Row, [string]$Value) {
     return [regex]::Replace($Text, "(?m)^\| $([regex]::Escape($Row)) \|.*\|\r?$", { param($m) "| $Row | $(Format-MdCell $Value) |" })
 }
 foreach ($a in $stage2Answers.Values) {
-    Write-Host "ANSWER_APPLIED=2$($a.Letter) #$($a.Id)"
-    $text = [regex]::Replace($text, "(?m)^(\| Existing work item \|.*?\b$($a.Letter): #$($a.Id)\b[^<|]*?\()(same \(to confirm\)|likely same|same)(,)", { param($m) $m.Groups[1].Value + $a.Verdict + $m.Groups[3].Value })
+    Write-Host "ANSWER_APPLIED=2$($a.Letter) $($a.Ref)"
+    $text = [regex]::Replace($text, "(?m)^(\| Existing work item \|.*?\b$($a.Letter): $([regex]::Escape($a.Ref))\b[^<|]*?\()(same \(to confirm\)|likely same|same)(,)", { param($m) $m.Groups[1].Value + $a.Verdict + $m.Groups[3].Value })
 }
 foreach ($row in $headerAnswers.Keys) { $text = Set-HeaderRow $text $row $headerAnswers[$row]; Write-Host "ANSWER_APPLIED=$row" }
 $stagesRow = [regex]::Match($text, '(?m)^\| Stages done \| (.*) \|\r?$')
